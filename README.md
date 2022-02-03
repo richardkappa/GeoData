@@ -23,6 +23,10 @@ The data has all been downloaded to my local PC but it can be found in the locat
 + [Fire data](https://www.gov.uk/government/statistics/fire-statistics-incident-level-datasets)
 + [NHS data](https://www.nhs.uk/about-us/nhs-website-datasets/) 
 + [Schools](https://get-information-schools.service.gov.uk/)
++ [Natural England Data](https://naturalengland-defra.opendata.arcgis.com/)
++ [Historic England Data](https://historicengland.org.uk/listing/the-list/data-downloads/)
+    + Listed Buildings
+    + Conservation Areas
 
 + Not yet used, but will hopefully add
 	+ Ordnance Survey OpenData
