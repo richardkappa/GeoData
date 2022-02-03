@@ -32,6 +32,7 @@ The data has all been downloaded to my local PC but it can be found in the locat
 + Not yet used, but will hopefully add
 	+ Ordnance Survey OpenData
 		+ [OS Terrain50](https://osdatahub.os.uk/downloads/open/Terrain50)
+    + [BGS Data](https://www.bgs.ac.uk/geological-data/opengeoscience/map-data-downloads/)
 
 	
 	
