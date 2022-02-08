@@ -191,3 +191,29 @@ def nearest_neighbor_point(left_gdf, #source data
     else:
         out = closest_points
     return out
+
+
+#Density within a given radius
+def average_within_radius(src_points, #Source gdf, the gdf with the points you want to find the average near
+                          candidates, #gdf containing the list of points you want to find the average of
+                          factor,     #factor in your candidates gdf you want the average of
+                          radius      #radius you want to find the density inside of in metres
+                          ):
+
+    src = src_points.copy().reset_index(drop=True)
+    can = candidates.copy().reset_index(drop=True)
+    values = can.loc[:,factor].to_numpy()
+
+    src_geom_col = src.geometry.name
+    can_geom_col = can.geometry.name
+
+    np_df = np.array(src[src_geom_col].apply(lambda geom: (geom.x, geom.y)).to_list())
+    np_points = np.array(can[can_geom_col].apply(lambda geom: (geom.x, geom.y)).to_list())
+    tree = BallTree(np_points, leaf_size=15)
+
+    idx = tree.query_radius(np_df, r=radius, count_only=False, return_distance =False, sort_results=False)
+
+    #find the average value weighted by the number of values
+    avg = [np.nan if len(x)==0 else values[x].mean() for x in idx]
+
+    return avg
