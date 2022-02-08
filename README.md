@@ -40,3 +40,9 @@ The data has all been downloaded to my local PC but it can be found in the locat
 ## Processing
 + 01_GetData.ipynb
     + Imports & Processes all raw data into a standard format
++ 02_CreatePostcodeFile.ipynb
+    + From the raw gdf made in part 1 it creates a dataframe for all UK postcodes with lots of calculated variables based on our inputs
++ KeyFunctions.py
+    + The module containing the functions used by 01 and 02 and other items
++ Maps.ipynb
+    + An investigative piece of code containing different map outputs
