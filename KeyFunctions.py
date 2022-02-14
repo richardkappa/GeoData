@@ -4,6 +4,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 import pickle
 from sklearn.neighbors import BallTree
+import pygeos
 
 #Import a points csv into a dataframe
 def Import_Points(infile, inputs, dtypes):
@@ -217,3 +218,29 @@ def average_within_radius(src_points, #Source gdf, the gdf with the points you w
     avg = [np.nan if len(x)==0 else values[x].mean() for x in idx]
 
     return avg
+
+
+#Generalised function to find the nearest candidate geometry to each source geometry
+def dist_to_nearest(source, candidates, return_geom = False):
+    source_py = pygeos.from_shapely(source.geometry)
+    candidates_py = pygeos.from_shapely(candidates.geometry)
+    tree = pygeos.STRtree(candidates_py)
+    s_near, c_near = tree.nearest(source_py)
+
+    dist = pygeos.distance(source_py[s_near.tolist()], candidates_py[c_near.tolist()])
+
+    if return_geom:
+        out = dist, candidates.loc[c_near.tolist() ,"geometry"]
+    else:
+        out = dist
+
+    return out
+
+#Generalised function to find number of geometries within a radius of a point in the source geometry
+def within_radius(source, candidates, radius):
+    source_py = pygeos.from_shapely(source.geometry)
+    candidates_py = pygeos.from_shapely(candidates.geometry)
+
+    tree = pygeos.STRtree(candidates_py)
+    s_idx, c_idx = tree.query_bulk(source_py, predicate='dwithin', distance=radius)
+    return np.bincount(s_idx)
