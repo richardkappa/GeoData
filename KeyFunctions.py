@@ -5,6 +5,8 @@ from shapely.geometry import Polygon
 import pickle
 from sklearn.neighbors import BallTree
 import pygeos
+from libpysal import weights
+import networkx as nx
 
 #Import a points csv into a dataframe
 def Import_Points(infile, inputs, dtypes):
@@ -244,3 +246,54 @@ def within_radius(source, candidates, radius):
     tree = pygeos.STRtree(candidates_py)
     s_idx, c_idx = tree.query_bulk(source_py, predicate='dwithin', distance=radius)
     return np.bincount(s_idx)
+
+##Network analysis functions
+#Converts a gepandas dataframe of polygones into a networkx network of boundaries
+def create_network_from_shapes(shape_gdf):
+    
+    #Create a weight object from the gdf, this object contains all boundaires between polygons that are next to each other. The convert it to a networkx object
+    queen = weights.Queen.from_dataframe(shape_gdf)
+    G = queen.to_networkx()
+
+    #Name the nodes in this network the same as the names of the polygon names
+    keys = [*range(0,G.number_of_nodes())]
+    values = shape_gdf["Name"].to_list()
+    Node_names = dict(zip(keys, values))
+    G = nx.relabel_nodes(G, Node_names)
+
+    #For plotting on a chart, get the locations of hte polygon centroids for the locations of each node
+    centroids = np.column_stack((shape_gdf.centroid.x, shape_gdf.centroid.y))
+    positions = dict(zip(G.nodes, centroids))
+
+    return G, positions
+
+#returns a sub network of the nodes within netowork_size edges of your stated node
+def witin_n_boundaries(G, node_name, network_size):
+    G_n = nx.ego_graph(G, node_name, network_size)
+    in_network = list(dict(G_n.nodes()).keys())
+
+    return G_n, in_network
+
+#Given a list of polygons in a given gdf, what is the average value in these polygons
+def Average_In_Neighbourhood(shape_gdf, shape_list, count, average):
+    new = shape_gdf[shape_gdf['Name'].isin(shape_list)].loc[:,[count, average]]
+    sales = np.sum(new[count])
+    Av_Cost = np.round(np.sum(new[count] * new[average])/ sales)
+    return [sales, Av_Cost]
+
+#Combine the above two finctions into a single function we can use in a list comprehension in the next function
+def average_within_n_boundaries_sub(shape_gdf, G, node_name, count, average, network_size):
+    G_n, in_network = witin_n_boundaries(G, node_name, network_size=network_size)
+    count_mean = Average_In_Neighbourhood(shape_gdf, in_network, count, average)
+    return count_mean
+
+#Combine all of the network functions above into a single function.
+#For a given set of boundary shapefiles with average and count variables contained within. Find the average value of within network_size boundaries of each polygon
+def average_within_n_boundaries(shape_gdf, count, average, network_size):
+    G, pos = create_network_from_shapes(shape_gdf)
+
+    count_name = count + "_within_" + str(network_size) + "_boundaries"
+    average_name = average + "_within_" + str(network_size) + "_boundaries"
+    count_mean = pd.DataFrame([average_within_n_boundaries_sub(shape_gdf, G, x, count, average, network_size) for x in shape_gdf["Name"]], columns = [count_name, average_name])
+
+    return count_mean
