@@ -223,6 +223,7 @@ def average_within_radius(src_points, #Source gdf, the gdf with the points you w
 
 
 #Generalised function to find the nearest candidate geometry to each source geometry
+#returns a value of -1 if there are none
 def dist_to_nearest(source, candidates, return_geom = False):
     source_py = pygeos.from_shapely(source.geometry)
     candidates_py = pygeos.from_shapely(candidates.geometry)
@@ -230,6 +231,8 @@ def dist_to_nearest(source, candidates, return_geom = False):
     s_near, c_near = tree.nearest(source_py)
 
     dist = pygeos.distance(source_py[s_near.tolist()], candidates_py[c_near.tolist()])
+    if len(dist)==0:
+        dist = np.full(len(source), -1, dtype="int64")
 
     if return_geom:
         out = dist, candidates.loc[c_near.tolist() ,"geometry"]
@@ -245,7 +248,12 @@ def within_radius(source, candidates, radius):
 
     tree = pygeos.STRtree(candidates_py)
     s_idx, c_idx = tree.query_bulk(source_py, predicate='dwithin', distance=radius)
-    return np.bincount(s_idx)
+    if len(np.bincount(s_idx))==0:
+        print("No points in the radius")
+        return np.full(len(source), 0, dtype="int64") 
+    else:
+        tail = np.full(len(source) - len(np.bincount(s_idx)), 0, dtype="int64")
+        return np.concatenate((np.bincount(s_idx), tail), axis=0)
 
 ##Network analysis functions
 #Converts a gepandas dataframe of polygones into a networkx network of boundaries
