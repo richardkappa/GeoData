@@ -16,7 +16,7 @@ The data has all been downloaded to my local PC but it can be found in the locat
     + [OS Open Rivers](https://osdatahub.os.uk/downloads/open/OpenRivers)
     + [OS Open Roads](https://osdatahub.os.uk/downloads/open/OpenRoads)
     + [OS Open UDPRN](https://osdatahub.os.uk/downloads/open/OpenUPRN) (Not used)
-    + [Strategi](https://osdatahub.os.uk/downloads/open/Strategi) (As at 2016)
+    + [Strategi] (As at 2016 and now no longer on the OS website)
         + Used for coastline, railways, ferries...
 + National Public Transport Access Nodes [(NaPTAN)](https://data.gov.uk/dataset/ff93ffc1-6656-47d8-9155-85ea0b8f2251/national-public-transport-access-nodes-naptan)
 + [DTF Road Safety Data](https://data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-safety-data)
