@@ -34,7 +34,7 @@ The data has all been downloaded to my local PC but it can be found in the locat
 		+ [OS Terrain50](https://osdatahub.os.uk/downloads/open/Terrain50)
     + [BGS Data](https://www.bgs.ac.uk/geological-data/opengeoscience/map-data-downloads/)
     + [2021 census data](https://www.nomisweb.co.uk/census/2021/bulk)
-        +This will take some thought as there are lots of individual files 
+        + This will take some thought as there are lots of individual files 
 
 	
 	
