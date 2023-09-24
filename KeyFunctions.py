@@ -286,7 +286,10 @@ def witin_n_boundaries(G, node_name, network_size):
 def Average_In_Neighbourhood(shape_gdf, shape_list, count, average):
     new = shape_gdf[shape_gdf['Name'].isin(shape_list)].loc[:,[count, average]]
     sales = np.sum(new[count])
-    Av_Cost = np.round(np.sum(new[count] * new[average])/ sales)
+    if sales>0:
+        Av_Cost = np.round(np.sum(new[count] * new[average])/ sales)
+    else:
+        Av_Cost = 0
     return [sales, Av_Cost]
 
 #Combine the above two finctions into a single function we can use in a list comprehension in the next function
