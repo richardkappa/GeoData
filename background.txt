@@ -1,0 +1,18 @@
+pandas
+numpy
+geopandas
+xarray
+shapely
+matplotlib
+sklearn
+pygeos
+libpysal
+networkx
+
+conda create -n GeoData pandas numpy geopandas xarray shapely matplotlib  scikit-learn pygeos libpysal networkx odfpy ipykernel netcdf4 h5netcdf
+
+conda remove --name Geography --all
+
+conda list -n base -r
+
+conda install 
