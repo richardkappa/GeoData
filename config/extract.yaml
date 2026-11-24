@@ -94,11 +94,14 @@ sources:
     years: [2025]                 # add 2019 for comparison (LSOA 2011 codes)
 
   # --- Crime & safety ---------------------------------------------------------
-  police:                 # data.police.uk archive ~1.7 GB (36 months, all forces)
+  police:                 # data.police.uk monthly archives (~1.7 GB each, 36 months, all forces)
     enabled: true
-    archive: latest               # or "YYYY-MM"
-    months: 12                    # how many months back from the archive month to keep
+    start: 2025-10                # first month (YYYY-MM). null = `months` back from `end`
+    end: latest                   # last month (YYYY-MM) or latest
+    months: 12                    # only used when start is null
     datasets: [street, stop-and-search]   # also: outcomes
+                                  # periods inside the last 36 months need one archive; longer
+                                  # histories download one extra archive per 36 months
 
   road_safety:            # STATS19
     enabled: true
@@ -112,9 +115,11 @@ sources:
     stop_types: null              # e.g. [RLY, BCT, FER, TMU, AIR]; null = all
 
   # --- Postcode-level datasets ------------------------------------------------
-  land_registry:          # Price Paid; each year ~150 MB, complete ~5 GB
+  land_registry:          # Price Paid; yearly files ~150 MB each, complete file ~5 GB
     enabled: true
-    years: [2024, 2025, 2026]     # or "complete"
+    start: 2024-01-01             # year, YYYY-MM or YYYY-MM-DD (data starts 1995)
+    end: latest                   # same formats, or latest
+    complete_file_years: 8        # periods longer than this use the single complete file
 
   schools:
     enabled: true
@@ -142,6 +147,32 @@ sources:
       OpenUPRN:       {format: CSV, enabled: false}       # 620 MB zip, 41m UPRN coordinates
       OpenNames:      {format: CSV, enabled: false}
       Terrain50:      {format: ASCII Grid, process: false, enabled: false}  # 50 m DTM, raw only
+
+  # --- Flood risk, broadband, health, food ------------------------------------
+  environment_agency:     # flood risk by postcode (England)
+    enabled: true
+    datasets: [rofrs_postcodes, postcode_risk]
+
+  ofcom:                  # Connected Nations postcode broadband coverage
+    enabled: true
+    page: https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds/connected-nations-2025/data-downloads-2025
+    link_regex: postcode          # which zip links on the page to take
+    url: null                     # direct zip link, if the page blocks automated access
+                                  # (or drop the zip into <data_dir>/raw/ofcom/)
+
+  nhs_ods:                # NHS Organisation Data Service (England & Wales)
+    enabled: true
+    reports: [epraccur, edispensary, egdpprac, ets]   # GP practices, pharmacies, dentists, NHS trust sites
+                                  # also: ebranchs (branch surgeries), ephp (independent healthcare)
+    active_only: true
+    gp_roles: [RO76]              # epraccur ODS role: RO76 = GP practice; null keeps out-of-hours, walk-in ...
+
+  cqc:                    # Care Quality Commission active locations (England)
+    enabled: true
+    exclude_dormant: true
+
+  fsa:                    # Food Standards Agency hygiene ratings (UK)
+    enabled: true
 
   # --- Environment, heritage, climate -----------------------------------------
   natural_england:

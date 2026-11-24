@@ -307,10 +307,56 @@ def summary_police_lsoa(extract_dir, spec):
     return pa.Table.from_pandas(wide, preserve_index=False), "lsoa21cd"
 
 
+def summary_count(extract_dir, spec):
+    """Generic per-key counts of a record table (default key ``postcode_ns``).
+
+    spec: ``file``; ``prefix``; optional ``filter`` {column: value | [values]};
+    ``category`` column with ``categories`` {label: value | [values]} for
+    per-category counts; ``sum`` / ``mean`` lists of numeric columns.
+    Produces ``<prefix>count``, ``<prefix>count_<label>``, ``<prefix>sum_<col>``,
+    ``<prefix>mean_<col>``.
+    """
+    key = spec.get("key", POSTCODE_KEY)
+    cat = spec.get("category")
+    num = list(dict.fromkeys(spec.get("sum", []) + spec.get("mean", [])))
+    filt = spec.get("filter") or {}
+    cols = list(dict.fromkeys([key, *([cat] if cat else []), *num, *filt]))
+    t = _read(extract_dir, spec["file"], columns=cols)
+    t = t.filter(pc.is_valid(t[key]))
+    for c, v in filt.items():
+        vals = v if isinstance(v, list) else [v]
+        t = t.filter(pc.is_in(pc.cast(t[c], pa.string()), pa.array([str(x) for x in vals])))
+    prefix = spec.get("prefix", "")
+    enc = pc.dictionary_encode(t[key]).combine_chunks()
+    gid, keys = enc.indices.to_numpy(), enc.dictionary
+    ng = len(keys)
+    counts = np.bincount(gid, minlength=ng)
+    out = {key: keys, f"{prefix}count": pa.array(counts.astype("int32"))}
+    if cat:
+        cv = pc.cast(t[cat], pa.string()).to_numpy(zero_copy_only=False)
+        for label, v in (spec.get("categories") or {}).items():
+            vals = v if isinstance(v, list) else [v]
+            n = np.bincount(gid[np.isin(cv, [str(x) for x in vals])], minlength=ng)
+            out[f"{prefix}count_{label}"] = pa.array(n.astype("int32"))
+    for c in num:
+        x = pc.cast(t[c], pa.float64()).to_numpy(zero_copy_only=False)
+        ok = ~np.isnan(x)
+        tot = np.bincount(gid[ok], weights=x[ok], minlength=ng)
+        if c in spec.get("sum", []):
+            out[f"{prefix}sum_{c}"] = pa.array(tot)
+        if c in spec.get("mean", []):
+            n = np.bincount(gid[ok], minlength=ng)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                m = np.round(tot / n, 3)
+            out[f"{prefix}mean_{c}"] = pa.array(m, mask=n == 0)
+    return pa.table(out), key
+
+
 SUMMARIES = {
     "land_registry": summary_land_registry,
     "uprn_count": summary_uprn_count,
     "police_lsoa": summary_police_lsoa,
+    "count": summary_count,
 }
 
 
@@ -319,7 +365,13 @@ def join_summary(spine, extract_dir, spec, dd: Dictionary):
     t, key = fn(extract_dir, spec)
     dd.add([c for c in t.column_names if c != key], spec.get("file", spec["summary"]), "summary", key,
            spec.get("note", ""))
-    return _left_join(spine, t, key, key)
+    spine = _left_join(spine, t, key, key)
+    # a postcode absent from a record table has zero of those records
+    if spec["summary"] == "count" and spec.get("fill_zero", True):
+        for c in t.column_names:
+            if c != key and ("_count" in c or c.endswith("count") or "_sum_" in c):
+                spine = spine.set_column(spine.schema.get_field_index(c), c, pc.fill_null(spine[c], 0))
+    return spine
 
 
 # ------------------------------------------------------------------- driver

@@ -63,7 +63,7 @@ Some sources need a key, set as an environment variable:
 * **`sources.<name>.enabled`**: turns a source on or off. `--only` ignores
   this setting.
 * **Source parameters** choose what each source pulls. Examples: which census
-  tables and at what level, how many months of police data, Land Registry years,
+  tables and at what level, the **start/end period** for police data and Land Registry sales,
   which NaPTAN stop types, which OS products and GeoPackage layers, which
   boundary or designation layers, and how much to simplify polygons.
 
@@ -139,13 +139,13 @@ section 3. Each column comes from one of four join types set in
 
 | Join type | What it does | Used for |
 |---|---|---|
-| `postcode` | table already keyed on `postcode_ns` | DESNZ electricity and gas |
+| `postcode` | table already keyed on `postcode_ns` | DESNZ electricity and gas; EA flood risk; Ofcom broadband |
 | `area` | table keyed on an area code the NSPL carries (`spine_col`, plus `key` if the file names it differently) | area names, Census 2021 (OA), IMD 2025 (LSOA) |
 | `polygon` | attributes of the polygon the postcode centroid falls in. `how: first` (attributes), `flag` (inside any), `count`, `max`/`min` | AONB, SSSI, ancient woodland, national park, conservation area, WHS, built-up area, radon class, BGS GeoSure classes, Met Office 1991–2020 climate cell values |
-| `summary` | simple counts or summaries of record tables inside the postcode or its area | addresses (UPRNs) per postcode; Land Registry sales count, median price, last sale date and property-type mix per postcode; police crimes by type in the postcode's LSOA (last N months) |
+| `summary` | simple counts or summaries of record tables inside the postcode or its area | addresses (UPRNs) per postcode; Land Registry sales count, median price, last sale date and property-type mix per postcode; police crimes by type in the postcode's LSOA (last N months); generic `count` summaries (with per-category counts, sums and means) for food businesses and their mean hygiene rating, CQC locations, care homes and beds, GP practices, pharmacies, dentists and NHS sites. Counts are 0 where a postcode has none |
 
-A test run on the full UK (2.70m postcodes with grid references) produced 346
-columns in about 100 s, peaking at about 6.7 GB of RAM. Coverage follows each
+A test run on the full UK (2.70m postcodes with grid references) produced 383
+columns (without Ofcom) in about 90 s, peaking at about 6.7 GB of RAM. Coverage follows each
 source's geography:
 
 | Source | Coverage | Why |
@@ -155,6 +155,7 @@ source's geography:
 | Police | 86% | England, Wales and Northern Ireland, without Scotland |
 | Energy | 41–48% | live domestic postcodes |
 | Land Registry | 29% | postcodes with sales in the years extracted |
+| EA flood risk | 54% (search tool), 6% (rivers & sea) | England; the rivers & sea file lists only postcodes in risk areas |
 
 How it stays fast and light:
 * Joins are **index lookups**. `pyarrow.compute.index_in` finds each postcode's
@@ -198,15 +199,24 @@ All of these are open data under the Open Government Licence v3 unless noted.
 ### Crime, safety, transport
 | Source key | Data | Merge key | Notes |
 |---|---|---|---|
-| `police` ✅ | [data.police.uk](https://data.police.uk/data/archive/) street crime and stop & search, all forces | `lsoa21cd`; points as easting/northing | Uses the latest monthly archive (~1.7 GB, 36 months) and keeps the last `months`. Also writes `crimes_lsoa_month.parquet` with counts per LSOA × month × crime type |
+| `police` ✅ | [data.police.uk](https://data.police.uk/data/archive/) street crime and stop & search, all forces | `lsoa21cd`; points as easting/northing | Set `start`/`end` (`YYYY-MM`, `end: latest`). Each archive is ~1.7 GB and holds 36 months, so a period inside the last three years needs one download, and the fewest extra archives are fetched for longer histories (data goes back to Dec 2010). Also writes `crimes_lsoa_month.parquet` with counts per LSOA × month × crime type |
 | `road_safety` ✅ | DfT STATS19 road collisions (vehicles and casualties optional) | easting/northing, `lsoa_of_collision` | Choose `last-5-years`, a list of years, or the full 1979+ file |
 | `naptan` ✅ | DfT NaPTAN: every bus, rail, tram, ferry and air access node | `atcocode`, easting/northing | Adds a simple `mode` column. Can filter on `stop_types` |
 
 ### Property & services
 | Source key | Data | Merge key | Notes |
 |---|---|---|---|
-| `land_registry` ✅ | HM Land Registry Price Paid (England & Wales sales) | `postcode_ns` | Choose years or the complete file (~5 GB). The current year's file is refreshed if it's older than 20 days |
+| `land_registry` ✅ | HM Land Registry Price Paid (England & Wales sales) | `postcode_ns` | Set `start`/`end` as a year, `YYYY-MM` or a date (`end: latest`); sales are filtered to that range. Yearly files are fetched, or the complete file (~5 GB) for periods longer than `complete_file_years`. Files updated monthly are refreshed when older than 20 days |
 | `schools` ✅ | DfE Get Information about Schools: all open establishments | `postcode_ns`, `urn`, easting/northing | Finds the latest daily extract automatically |
+
+### Flood risk, broadband, health, food
+| Source key | Data | Merge key | Notes |
+|---|---|---|---|
+| `environment_agency` ✅ | Environment Agency flood risk by postcode (England): **Risk of Flooding from Rivers and Sea – postcodes in areas at risk** (properties by likelihood band and type) and the **flood risk postcode search tool** data (properties at high/medium/low risk, groundwater risk class) | `postcode_ns` | Files found through the data.gov.uk catalogue, so new releases are picked up automatically |
+| `ofcom` ⚠️ | Ofcom Connected Nations fixed broadband coverage by postcode (superfast, ultrafast, full fibre, gigabit, below-USO) | `postcode_ns` | **Not tested.** Ofcom's site has a Cloudflare browser check that blocked every automated request from the cloud test machine. It may work from a home connection. If it doesn't, set `url:` to the zip's link, or save the zip from a browser into `<data_dir>/raw/ofcom/`, and it will be processed |
+| `nhs_ods` ✅ | NHS Organisation Data Service (England & Wales): GP practices (6.6k, role RO76), pharmacies, dental practices, NHS trust sites (hospitals and clinics); optionally branch surgeries and independent healthcare | `postcode_ns`, `org_code` | ODS Data Search & Export API, no key needed. Active organisations only |
+| `cqc` ✅ | Care Quality Commission active registered locations (England): care homes with bed numbers, home care, GP surgeries, dentists, hospitals and clinics, with overall rating, UPRN and coordinates | `postcode_ns`, `uprn`, easting/northing | Link found on CQC's "using CQC data" page. The ODS file is read with `python-calamine` in seconds |
+| `fsa` ✅ | Food Standards Agency hygiene ratings: all ~615k rated food businesses in the UK, with business type, rating, scores and coordinates | `postcode_ns`, `fhrsid`, easting/northing | Uses the single all-establishments CSV, falling back to the 363 per-council XML files |
 
 ### Boundaries
 | Source key | Data | Notes |
@@ -234,12 +244,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | `metoffice_haduk` | HadUK-Grid 1 km annual, seasonal or monthly grids for chosen years and variables (rainfall, temperature, sun, frost, snow, wind, humidity) | **Needs `CEDA_TOKEN`**: CEDA now requires a login for these files. Written as a land-only x/y grid |
 
 ### Candidates for later (not built yet)
-These are open UK sources that also join at postcode or small-area level:
-* **Environment Agency** flood risk: *Risk of Flooding from Rivers and Sea – postcodes in areas at risk* (postcode level), and the flood risk postcode search tool data.
-* **Ofcom Connected Nations**: broadband speed and availability by postcode.
-* **Food Standards Agency** food hygiene ratings: every food business with a postcode, via an API.
-* **CQC** care homes and GP practices: locations with postcodes, via an API.
-* **NHS ODS / NHS website datasets**: GP surgeries, pharmacies, hospitals (the old `media.nhs.uk` URLs are no longer reachable).
+These are other open UK sources that join at postcode or small-area level:
 * **Defra air quality** background maps: 1 km grid of NO₂ and PM2.5.
 * **VOA council tax** stock by band (LSOA), **ONS small area income** estimates (MSOA), **EPC** certificates (postcode/UPRN; free API key).
 * **Scotland**: SIMD and the Scotland's Census 2022 bulk data. **Wales**: WIMD. **NI**: NIMDM.

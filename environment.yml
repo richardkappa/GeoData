@@ -20,6 +20,7 @@ dependencies:
   - h5netcdf
   - openpyxl
   - odfpy
+  - python-calamine
   # later sections (collation, feature creation, visualisation)
   - scipy
   - scikit-learn

@@ -14,6 +14,7 @@ import pyarrow.compute as pc
 
 from .. import download as dl
 from .. import govuk, io
+from ..periods import parse_date
 from ..postcode import add_postcode_ns
 from . import source
 
@@ -27,21 +28,36 @@ PP_NAMES = ["transaction_id", "price", "date_of_transfer", "postcode", "property
 
 
 @source("land_registry", order=30, keys=["postcode_ns"],
-        description="HM Land Registry Price Paid data (E&W house sales) for chosen years")
+        description="HM Land Registry Price Paid data (E&W house sales) for a start/end period")
 def land_registry(settings, params):
-    years = params.get("years", [dt.date.today().year - 1, dt.date.today().year])
-    files = ["pp-complete.csv"] if years == "complete" else [f"pp-{y}.csv" for y in years]
+    """Sales with ``start <= date_of_transfer <= end``.
+
+    ``start``/``end`` take a year, ``YYYY-MM`` or ``YYYY-MM-DD``; ``end: latest``.
+    Yearly files are downloaded for the years in range; periods longer than
+    ``complete_file_years`` (default 8) use the single complete file instead.
+    """
+    today = dt.date.today()
+    start = parse_date(params.get("start", today.year - 2)) or dt.date(1995, 1, 1)
+    end = parse_date(params.get("end", "latest"), end=True) or today
+    if start > end:
+        raise ValueError(f"land_registry start {start} is after end {end}")
+    start = max(start, dt.date(1995, 1, 1))          # Price Paid starts in 1995
+    years = list(range(start.year, min(end.year, today.year) + 1))
+    files = ["pp-complete.csv"] if len(years) > int(params.get("complete_file_years", 8)) \
+        else [f"pp-{y}.csv" for y in years]
     cols = params.get("columns", ["transaction_id", "price", "date_of_transfer", "postcode",
                                   "property_type", "old_new", "duration", "ppd_category_type"])
+    if "date_of_transfer" not in cols:
+        cols = [*cols, "date_of_transfer"]
     out = settings.out("land_registry") / "price_paid.parquet"
-    if io.is_fresh(out, settings.reprocess or settings.force):
+    meta = {"start": str(start), "end": str(end), "files": files}
+    if not (settings.reprocess or settings.force) and _meta_matches(out, meta, ("start", "end")):
         return [out]
     parts = []
-    this_year = dt.date.today().year
     for f in files:
         dest = settings.raw("land_registry") / f
-        # the current year's file is updated monthly, so refresh it
-        stale = f == f"pp-{this_year}.csv" and dest.exists() and \
+        # the current year's file and the complete file are updated monthly: refresh if old
+        stale = f in (f"pp-{today.year}.csv", "pp-complete.csv") and dest.exists() and \
             (dt.datetime.now().timestamp() - dest.stat().st_mtime) > 20 * 86400
         try:
             dl.download(PP.format(f=f), dest, force=settings.force or stale, timeout=max(settings.timeout, 900))
@@ -53,16 +69,32 @@ def land_registry(settings, params):
         return []
     t = pa.concat_tables(parts)
     t = io.to_numeric(t, ["price"], pa.int64())
-    if "date_of_transfer" in t.column_names:
-        d = pc.utf8_slice_codeunits(t["date_of_transfer"], 0, 10)
-        t = t.set_column(t.schema.get_field_index("date_of_transfer"), "date_of_transfer",
-                         pc.cast(pc.strptime(d, "%Y-%m-%d", "s"), pa.date32()))
+    d = pc.utf8_slice_codeunits(t["date_of_transfer"], 0, 10)
+    t = t.set_column(t.schema.get_field_index("date_of_transfer"), "date_of_transfer",
+                     pc.cast(pc.strptime(d, "%Y-%m-%d", "s"), pa.date32()))
+    keep = pc.and_(pc.greater_equal(t["date_of_transfer"], pa.scalar(start, pa.date32())),
+                   pc.less_equal(t["date_of_transfer"], pa.scalar(end, pa.date32())))
+    t = t.filter(keep)
     for c in ("property_type", "old_new", "duration", "ppd_category_type", "record_status", "county", "district"):
         if c in t.column_names:
             t = t.set_column(t.schema.get_field_index(c), c, pc.dictionary_encode(t[c]))
     t = add_postcode_ns(t, "postcode")
-    io.write_table(t, out, meta={"files": files})
+    log.info("land_registry %s .. %s: %s sales", start, end, f"{t.num_rows:,}")
+    io.write_table(t, out, meta=meta)
     return [out]
+
+
+def _meta_matches(path, meta: dict, keys) -> bool:
+    """True when ``path`` exists and was built with the same ``keys`` in its metadata."""
+    import json
+    import pyarrow.parquet as pq
+    if not path.exists():
+        return False
+    try:
+        old = json.loads((pq.read_schema(path).metadata or {}).get(b"geodata", b"{}"))
+    except ValueError:
+        return False
+    return all(old.get(k) == meta.get(k) for k in keys)
 
 
 GIAS = "https://ea-edubase-api-prod.azurewebsites.net/edubase/downloads/public/edubasealldata{d}.csv"

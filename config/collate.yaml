@@ -46,6 +46,42 @@ joins:
   - {name: land_registry, type: summary, summary: land_registry, standard_only: true,
      note: sales in the extracted years; standard (category A) sales only}
 
+  # --- flood risk & broadband (postcode level) -------------------------------
+  - {name: ea_rofrs, type: postcode, file: environment_agency/rofrs_postcodes.parquet,
+     note: "EA properties by rivers & sea flood likelihood band (England, postcodes in risk areas only)"}
+  - {name: ea_postcode_risk, type: postcode, file: environment_agency/postcode_risk.parquet,
+     note: EA properties at high/medium/low flood risk and groundwater risk class (England)}
+  - {name: ofcom_broadband, type: postcode, file: ofcom/broadband_postcode.parquet,
+     note: Ofcom Connected Nations fixed broadband coverage}
+
+  # --- services located in the postcode (counts; distances/densities are section 3)
+  - name: food_hygiene
+    type: summary
+    summary: count
+    file: fsa/food_hygiene.parquet
+    prefix: fsa_
+    category: businesstype
+    categories:
+      takeaway: Takeaway/sandwich shop
+      restaurant: Restaurant/Cafe/Canteen
+      pub_club: Pub/bar/nightclub
+      retail: [Retailers - other, Retailers - supermarkets/hypermarkets]
+    mean: [rating_numeric]
+    note: food businesses in the postcode and their mean 0-5 hygiene rating
+  - name: cqc
+    type: summary
+    summary: count
+    file: cqc/cqc_locations.parquet
+    prefix: cqc_
+    category: care_home
+    categories: {care_home: Y}
+    sum: [care_home_beds]
+    note: CQC registered locations in the postcode (England)
+  - {name: gp_practices, type: summary, summary: count, file: nhs_ods/gp_practices.parquet, prefix: gp_practices_}
+  - {name: pharmacies, type: summary, summary: count, file: nhs_ods/pharmacies.parquet, prefix: pharmacies_}
+  - {name: dental_practices, type: summary, summary: count, file: nhs_ods/dental_practices.parquet, prefix: dentists_}
+  - {name: nhs_trust_sites, type: summary, summary: count, file: nhs_ods/nhs_trust_sites.parquet, prefix: nhs_sites_}
+
   # --- small-area statistics --------------------------------------------------
   - name: census_2021
     type: area
@@ -73,8 +109,7 @@ joins:
   - {name: world_heritage_site, type: polygon, how: flag, file: historic_england/world_heritage_sites.parquet}
   - {name: registered_park_garden, type: polygon, how: flag, file: historic_england/parks_and_gardens.parquet}
   - {name: built_up_area, type: polygon, file: os_open/builtupareas__os_open_built_up_areas.parquet,
-     columns: [name1_text, name2_text, areahectares],
-     rename: {name1_text: bua_name, name2_text: bua_name_alt, areahectares: bua_hectares}}
+     columns: [name1_text, areahectares], rename: {name1_text: bua_name, areahectares: bua_hectares}}
   - {name: radon, type: polygon, how: max, file: os_open/radon_indicative_atlas__radon_indicative_atlas_v3.parquet,
      columns: [class_max], rename: {class_max: radon_class}, note: "1 (<1% homes above action level) .. 6 (>=30%)"}
   - {name: geosure_shrink_swell, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_shrinkswell_v8.parquet,
