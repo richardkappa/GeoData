@@ -1,8 +1,8 @@
 # Set up and run the GeoData pipeline on Windows.
-#   powershell -ExecutionPolicy Bypass -File scripts\setup_and_run_windows.ps1 -Root E:\coding
+#   powershell -ExecutionPolicy Bypass -File scripts\setup_and_run_windows.ps1 -Root <folder to install into>
 # Needs: git and Miniconda/Miniforge (conda) on PATH.
 param(
-    [string]$Root = "E:\coding",
+    [Parameter(Mandatory = $true)][string]$Root,
     [string]$Branch = "claude/busy-ride-xglr2p",
     [switch]$SkipExtract,
     [string]$Bbox = ""          # e.g. "320000 420000 380000 520000" for a test area in section 3
