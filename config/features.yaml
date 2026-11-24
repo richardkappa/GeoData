@@ -115,6 +115,16 @@ landcover:
 terrain:
   relative_height_radii: [500, 2000]
 
+# --- 14. climate (Met Office HadUK-Grid 1 km annual grids, needs a CEDA login) ---
+# Each postcode takes its nearest land cell; per variable the average over the
+# extracted years, plus the latest year for `latest`, temperature range,
+# rainfall variability and the latest year's temperature change.
+climate:
+  file: metoffice_haduk/haduk_1km_ann.parquet
+  max_distance_m: 2000        # coastal postcodes take a land cell up to this far away
+  variables: [rainfall, tas, tasmax, tasmin, sun, groundfrost, airfrost, snowLying, sfcWind, hurs]
+  latest: [rainfall, tas, sun]
+
 # --- 10. water: height above the nearest river ------------------------------
 water:
   height_above: {file: os_open/openrivers__watercourse_link.parquet, filter: {form: [inlandRiver, tidalRiver]}}

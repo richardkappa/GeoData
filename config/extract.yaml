@@ -47,7 +47,7 @@ sources:
       - itl25cd
 
   ons_nsul:               # UPRN -> postcode + geographies. ~560 MB zip, ~42m rows
-    enabled: false
+    enabled: true
     regions: null                 # e.g. [LN, SE] to limit to some regions (file suffixes)
     columns: [oa21cd, lsoa21cd, msoa21cd, lad26cd]   # null = all
 
@@ -96,9 +96,9 @@ sources:
   # --- Crime & safety ---------------------------------------------------------
   police:                 # data.police.uk monthly archives (~1.7 GB each, 36 months, all forces)
     enabled: true
-    start: 2025-10                # first month (YYYY-MM). null = `months` back from `end`
+    start: null                   # first month (YYYY-MM). null = `months` back from `end`
     end: latest                   # last month (YYYY-MM) or latest
-    months: 12                    # only used when start is null
+    months: 24                    # only used when start is null; 24 = enough for 12m-vs-prior-12m crime trends
     datasets: [street, stop-and-search]   # also: outcomes
                                   # periods inside the last 36 months need one archive; longer
                                   # histories download one extra archive per 36 months
@@ -117,7 +117,7 @@ sources:
   # --- Postcode-level datasets ------------------------------------------------
   land_registry:          # Price Paid; yearly files ~150 MB each, complete file ~5 GB
     enabled: true
-    start: 2024-01-01             # year, YYYY-MM or YYYY-MM-DD (data starts 1995)
+    start: 2020-01-01             # year, YYYY-MM or YYYY-MM-DD (data starts 1995); >= 6 years back for 5-year price trends
     end: latest                   # same formats, or latest
     complete_file_years: 8        # periods longer than this use the single complete file
 
@@ -143,7 +143,7 @@ sources:
       BuiltUpAreas:   {format: GeoPackage}
       Radon_Indicative_Atlas: {format: GeoPackage, area: GB}   # BGS/UKHSA radon potential
       GB-Hex-5km-GeoSure:     {format: GeoPackage}             # BGS ground stability hazards
-      OpenRoads:      {format: GeoPackage, layers: [road_link, motorway_junction], enabled: false}  # 1 GB
+      OpenRoads:      {format: GeoPackage, layers: [road_link, motorway_junction], enabled: true}  # 1 GB
       OpenUPRN:       {format: CSV, enabled: false}       # 620 MB zip, 41m UPRN coordinates
       OpenNames:      {format: CSV, enabled: false}
       Terrain50:      {format: ASCII Grid, process: false, enabled: false}  # 50 m DTM, raw only
@@ -153,12 +153,16 @@ sources:
     enabled: true
     datasets: [rofrs_postcodes, postcode_risk]
 
-  ofcom:                  # Connected Nations postcode broadband coverage
+  ofcom:                  # Connected Nations postcode fixed broadband + mobile coverage
     enabled: true
     page: https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds/connected-nations-2025/data-downloads-2025
-    link_regex: postcode          # which zip links on the page to take
-    url: null                     # direct zip link, if the page blocks automated access
-                                  # (or drop the zip into <data_dir>/raw/ofcom/)
+    link_regex: postcode          # fixed: which zip links on the page to take (links matching 'mobile' excluded)
+    url: null                     # fixed: direct zip link, if the page blocks automated access
+    mobile: true                  # also extract postcode mobile coverage -> mobile_postcode.parquet
+    mobile_link_regex: 'mobile.*postcode|postcode.*mobile'
+    mobile_url: null              # mobile: direct zip link
+    mobile_file_regex: mobile     # zips in raw/ofcom whose name matches this are mobile, the rest fixed
+                                  # (or drop the zips into <data_dir>/raw/ofcom/; keep one release of each)
 
   nhs_ods:                # NHS Organisation Data Service (England & Wales)
     enabled: true
@@ -215,7 +219,7 @@ sources:
       min_temperature_12km: Annual_Min_Temperature_Observations_1991_2020
 
   metoffice_haduk:        # needs env CEDA_TOKEN (free CEDA account)
-    enabled: false
+    enabled: true
     version: latest
     resolution: 1km
     frequency: ann                # ann | seas | mon

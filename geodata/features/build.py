@@ -199,7 +199,7 @@ def run_landcover(F: Features, cfg, data_dir, grid, bbox_pad):
         for r, v in res.items():
             area_km2 = disc_cells(r, grid.res) * grid.res ** 2 / 1e6
             F.add(f"{name}_km_per_km2_{_r(r)}", np.round(v / 1000 / area_km2, 3), "landcover",
-                  f"km of {name} per km² within {r} m")
+                  f"km of {name} per kmÂ² within {r} m")
 
 
 def run_network(F: Features, cfg, data_dir, full, bbox_pad):
@@ -306,6 +306,82 @@ def run_terrain(F: Features, cfg, data_dir):
     for k, v in res.items():
         F.add(k, np.round(v, 2), "terrain", notes.get(k, "height minus mean height on a ring at that radius"))
     return tif
+
+
+CLIMATE_VARS = {   # HadUK-Grid annual variable -> (column stem, description)
+    "rainfall": ("rainfall_mm", "annual rainfall (mm)"),
+    "tas": ("temp_mean_c", "mean air temperature (Â°C)"),
+    "tasmax": ("temp_max_c", "mean daily maximum temperature (Â°C)"),
+    "tasmin": ("temp_min_c", "mean daily minimum temperature (Â°C)"),
+    "sun": ("sunshine_hours", "annual sunshine (hours)"),
+    "groundfrost": ("ground_frost_days", "days with ground frost"),
+    "airfrost": ("air_frost_days", "days with air frost"),
+    "snowLying": ("snow_lying_days", "days with snow lying"),
+    "sfcWind": ("wind_ms", "mean 10 m wind speed (m/s)"),
+    "hurs": ("humidity_pct", "mean relative humidity (%)"),
+}
+
+
+def run_climate(F: Features, cfg, data_dir):
+    """Met Office HadUK-Grid 1 km annual grids sampled at each postcode (nearest land cell)."""
+    cc = cfg.get("climate") or {}
+    if not cc:
+        return
+    f = data_dir / "extract" / cc.get("file", "metoffice_haduk/haduk_1km_ann.parquet")
+    if not f.exists():
+        log.warning("climate skipped: %s missing - run 01_extract.py --only metoffice_haduk (needs CEDA login)",
+                    f.relative_to(data_dir))
+        return
+    t = pq.read_table(f)
+    cols = t.column_names
+    years = sorted({int(m.group(1)) for c in cols if (m := re.search(r"_(\d{4})$", c))})
+    if not years:
+        log.warning("climate skipped: no <variable>_<year> columns in %s", f.name)
+        return
+    sp = F.spine
+    d, i = nearest.nearest_points(sp.x, sp.y, t["easting"].to_numpy(), t["northing"].to_numpy())
+    far = d > float(cc.get("max_distance_m", 2000))
+    span = f"{years[0]}-{years[-1]}" if len(years) > 1 else str(years[0])
+
+    def at_postcodes(c):
+        v = t[c].to_numpy(zero_copy_only=False).astype("f8")[i]
+        v[far] = np.nan
+        return v
+
+    import warnings
+
+    warnings.filterwarnings("ignore", "Mean of empty slice", RuntimeWarning)
+
+    warnings.filterwarnings("ignore", "Degrees of freedom", RuntimeWarning)
+
+    per_var = {}
+    for var in cc.get("variables", list(CLIMATE_VARS)):
+        stem, desc = CLIMATE_VARS.get(var, (io.snake(var), var))
+        ycols = [f"{var}_{y}" for y in years if f"{var}_{y}" in cols]
+        if not ycols:
+            continue
+        stack = np.column_stack([at_postcodes(c) for c in ycols])
+        per_var[var] = stack
+        with np.errstate(all="ignore"):
+            F.add(f"climate_{stem}_avg", np.round(np.nanmean(stack, axis=1), 2), "climate",
+                  f"{desc}, average of {span} (HadUK-Grid 1 km)")
+        if var in cc.get("latest", []):
+            F.add(f"climate_{stem}_{years[-1]}", np.round(stack[:, -1], 2), "climate",
+                  f"{desc} in {years[-1]} (HadUK-Grid 1 km)")
+    with np.errstate(all="ignore"):
+        if "tasmax" in per_var and "tasmin" in per_var:
+            F.add("climate_temp_range_c", np.round(np.nanmean(per_var["tasmax"] - per_var["tasmin"], axis=1), 2),
+                  "climate", f"mean daily max minus min temperature, {span} (Â°C): high inland, low on coasts")
+        if "rainfall" in per_var and per_var["rainfall"].shape[1] > 1:
+            r = per_var["rainfall"]
+            F.add("climate_rainfall_cv", np.round(np.nanstd(r, axis=1) / np.nanmean(r, axis=1), 3), "climate",
+                  f"year-to-year variability of annual rainfall, {span} (std / mean)")
+        if "tas" in per_var and per_var["tas"].shape[1] > 1:
+            tas = per_var["tas"]
+            F.add(f"climate_temp_change_{years[-1]}_c", np.round(tas[:, -1] - np.nanmean(tas[:, :-1], axis=1), 2),
+                  "climate", f"mean temperature in {years[-1]} minus the average of {years[0]}-{years[-2]} (Â°C)")
+    log.info("climate: %s postcodes had no land cell within %s m", f"{int(far.sum()):,}",
+             cc.get("max_distance_m", 2000))
 
 
 def run_house_prices(F: Features, cfg, data_dir, full, grid, bbox_pad, counts):
@@ -450,6 +526,8 @@ def build(data_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
         tif = run_terrain(F, cfg, data_dir)
     with io.Timer("water"):
         run_water(F, cfg, data_dir, full, bbox_pad, tif)
+    with io.Timer("climate"):
+        run_climate(F, cfg, data_dir)
     with io.Timer("network"):
         run_network(F, cfg, data_dir, full, bbox_net)
     with io.Timer("house prices"):

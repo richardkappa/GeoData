@@ -8,7 +8,9 @@
   (open, no login) - frost/summer/icing/rain days and 12 km climate grids.
 * ``metoffice_haduk``  HadUK-Grid 1 km annual/seasonal/monthly grids from CEDA
   for chosen years. CEDA now requires a (free) account: set the environment
-  variable ``CEDA_TOKEN`` to an access token from https://services.ceda.ac.uk.
+  variables ``CEDA_USERNAME`` and ``CEDA_PASSWORD`` and a short-lived access
+  token is created through CEDA's token API on each run, or set ``CEDA_TOKEN``
+  to a token from https://services.ceda.ac.uk.
 """
 from __future__ import annotations
 
@@ -54,6 +56,45 @@ CEDA = ("https://dap.ceda.ac.uk/badc/ukmo-hadobs/data/insitu/MOHC/HadOBS/HadUK-G
         "{version}/{res}/{var}/{freq}/{dv}/{var}_hadukgrid_uk_{res}_{freq}_{period}.nc")
 
 
+CEDA_TOKEN_API = "https://services.ceda.ac.uk/api/token/create/"
+
+
+def _jwt_seconds_left(token: str) -> float | None:
+    """Seconds until a JWT access token expires (None if it can't be read)."""
+    import base64, json, time
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload))["exp"] - time.time()
+    except Exception:
+        return None
+
+
+def _ceda_token() -> str | None:
+    """A usable CEDA access token: ``CEDA_TOKEN`` if it has more than an hour left,
+    otherwise a new one from CEDA's token API using ``CEDA_USERNAME`` / ``CEDA_PASSWORD``."""
+    import requests
+    token = os.environ.get("CEDA_TOKEN")
+    left = _jwt_seconds_left(token) if token else None
+    if token and (left is None or left > 3600):
+        return token
+    user, pw = os.environ.get("CEDA_USERNAME"), os.environ.get("CEDA_PASSWORD")
+    if not (user and pw):
+        if token:
+            log.warning("CEDA_TOKEN has expired or expires within the hour; set CEDA_USERNAME and "
+                        "CEDA_PASSWORD to have a new one created automatically")
+        return token
+    r = requests.post(CEDA_TOKEN_API, auth=(user, pw), timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    new = data.get("access_token") or data.get("token") or (data.get("data") or {}).get("access_token")
+    if not new:
+        raise ValueError(f"CEDA token API returned no token (keys: {sorted(data)})")
+    log.info("created a new CEDA access token (%.0f h validity)", (_jwt_seconds_left(new) or 0) / 3600)
+    os.environ["CEDA_TOKEN"] = new   # reuse within this run
+    return new
+
+
 def _latest_dir(url: str, prefix: str) -> str:
     import re
     html = dl.get_text(url)
@@ -66,10 +107,15 @@ def _latest_dir(url: str, prefix: str) -> str:
 @source("metoffice_haduk", order=53, keys=["easting/northing (1km grid)"],
         description="Met Office HadUK-Grid 1km climate grids from CEDA (needs CEDA_TOKEN)")
 def metoffice_haduk(settings, params):
-    token = os.environ.get("CEDA_TOKEN")
+    res = params.get("resolution", "1km")
+    freq = params.get("frequency", "ann")
+    out = settings.out("metoffice_haduk") / f"haduk_{res}_{freq}.parquet"
+    if io.is_fresh(out, settings.reprocess or settings.force):
+        return [out]
+    token = _ceda_token()
     if not token:
-        log.warning("metoffice_haduk skipped: set CEDA_TOKEN (free CEDA account) to download HadUK-Grid. "
-                    "metoffice_cdp provides open 1991-2020 averages without a login.")
+        log.warning("metoffice_haduk skipped: set CEDA_TOKEN, or CEDA_USERNAME and CEDA_PASSWORD (free CEDA "
+                    "account), to download HadUK-Grid. metoffice_cdp provides open 1991-2020 averages without a login.")
         return []
     import xarray as xr
 
@@ -77,13 +123,8 @@ def metoffice_haduk(settings, params):
     version = params.get("version", "latest")
     if version == "latest":
         version = _latest_dir(base + "/", "v")
-    res = params.get("resolution", "1km")
-    freq = params.get("frequency", "ann")
     variables = params.get("variables", ["rainfall", "tas", "sun", "groundfrost", "snowLying"])
     years = params.get("years", [])
-    out = settings.out("metoffice_haduk") / f"haduk_{res}_{freq}.parquet"
-    if io.is_fresh(out, settings.reprocess or settings.force):
-        return [out]
     headers = {"Authorization": f"Bearer {token}"}
     cols: dict[str, np.ndarray] = {}
     grid_x = grid_y = None

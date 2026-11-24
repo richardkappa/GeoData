@@ -53,6 +53,8 @@ joins:
      note: EA properties at high/medium/low flood risk and groundwater risk class (England)}
   - {name: ofcom_broadband, type: postcode, file: ofcom/broadband_postcode.parquet,
      note: Ofcom Connected Nations fixed broadband coverage}
+  - {name: ofcom_mobile, type: postcode, file: ofcom/mobile_postcode.parquet,
+     note: Ofcom Connected Nations mobile coverage (4G/5G by operator, indoor/outdoor)}
 
   # --- services located in the postcode (counts; distances/densities are section 3)
   - name: food_hygiene

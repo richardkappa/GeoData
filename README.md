@@ -51,7 +51,8 @@ Some sources need a key, set as an environment variable:
 
 | Variable | Needed by | How to get it |
 |---|---|---|
-| `CEDA_TOKEN` | `metoffice_haduk` (1 km HadUK-Grid yearly grids) | free account at https://services.ceda.ac.uk → access token |
+| `CEDA_USERNAME` + `CEDA_PASSWORD` | `metoffice_haduk` (1 km HadUK-Grid yearly grids) | free account at https://services.ceda.ac.uk; a 3-day access token is then created automatically through CEDA's token API |
+| `CEDA_TOKEN` (alternative) | `metoffice_haduk` | an access token made by hand on the CEDA site; used while it has more than an hour left |
 
 ---
 
@@ -213,7 +214,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | Source key | Data | Merge key | Notes |
 |---|---|---|---|
 | `environment_agency` ✅ | Environment Agency flood risk by postcode (England): **Risk of Flooding from Rivers and Sea – postcodes in areas at risk** (properties by likelihood band and type) and the **flood risk postcode search tool** data (properties at high/medium/low risk, groundwater risk class) | `postcode_ns` | Files found through the data.gov.uk catalogue, so new releases are picked up automatically |
-| `ofcom` ⚠️ | Ofcom Connected Nations fixed broadband coverage by postcode (superfast, ultrafast, full fibre, gigabit, below-USO) | `postcode_ns` | **Not tested.** Ofcom's site has a Cloudflare browser check that blocked every automated request from the cloud test machine. It may work from a home connection. If it doesn't, set `url:` to the zip's link, or save the zip from a browser into `<data_dir>/raw/ofcom/`, and it will be processed |
+| `ofcom` ⚠️ | Ofcom Connected Nations by postcode: fixed broadband coverage (superfast, ultrafast, full fibre, gigabit, below-USO) → `broadband_postcode.parquet` (`bb_*`), and mobile coverage (4G/5G by operator, indoor/outdoor) → `mobile_postcode.parquet` (`mob_*`) | `postcode_ns` | **Not tested.** Ofcom's site may block automated requests. If it does, set `url:` / `mobile_url:` to the zip links, or save the two postcode zips from a browser into `<data_dir>/raw/ofcom/` (a zip with "mobile" in its name is treated as mobile). Keep one release of each, as duplicate postcodes stop the run |
 | `nhs_ods` ✅ | NHS Organisation Data Service (England & Wales): GP practices (6.6k, role RO76), pharmacies, dental practices, NHS trust sites (hospitals and clinics); optionally branch surgeries and independent healthcare | `postcode_ns`, `org_code` | ODS Data Search & Export API, no key needed. Active organisations only |
 | `cqc` ✅ | Care Quality Commission active registered locations (England): care homes with bed numbers, home care, GP surgeries, dentists, hospitals and clinics, with overall rating, UPRN and coordinates | `postcode_ns`, `uprn`, easting/northing | Link found on CQC's "using CQC data" page. The ODS file is read with `python-calamine` in seconds |
 | `fsa` ✅ | Food Standards Agency hygiene ratings: all ~615k rated food businesses in the UK, with business type, rating, scores and coordinates | `postcode_ns`, `fhrsid`, easting/northing | Uses the single all-establishments CSV, falling back to the 363 per-council XML files |
@@ -270,7 +271,7 @@ geodata/
   collate.py             section 2 join engine (postcode / area / polygon / summary)
   sources/               one module per data family; each registers its extractors
 legacy/                  the original notebooks and KeyFunctions.py (manual downloads, hard-coded local paths)
-Investigations/          earlier experiments (they import ../KeyFunctions, now in legacy/)
+  Investigations/        earlier experiments (they import ../KeyFunctions, i.e. legacy/KeyFunctions.py)
 ```
 
 ### Adding a source
