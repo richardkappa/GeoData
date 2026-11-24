@@ -23,6 +23,7 @@ dependencies:
   - python-calamine
   # later sections (collation, feature creation, visualisation)
   - scipy
+  - rasterio
   - scikit-learn
   - matplotlib
   - libpysal

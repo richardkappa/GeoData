@@ -15,6 +15,7 @@ openpyxl
 odfpy
 python-calamine        # fast ODS/XLSX reader (CQC files)
 scipy
+rasterio
 scikit-learn
 matplotlib
 libpysal

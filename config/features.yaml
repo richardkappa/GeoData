@@ -1,0 +1,159 @@
+# =============================================================================
+# Section 3 - new data creation: per-postcode features
+# -----------------------------------------------------------------------------
+# python 03_features.py        -> <data_dir>/features/postcode_features.parquet (+ dictionary)
+# Primary key postcode_ns. Reads section 1 outputs and the section 2 lookup.
+# Any group can be removed/commented out; missing inputs are skipped with a warning.
+# Test on an area first with spine.bbox, e.g. [320000, 420000, 380000, 520000]
+# (Lancaster - South Lakes), before running the whole UK.
+# =============================================================================
+
+global:
+  data_dir: data
+  output: postcode_features
+  grid_res: 100               # metres; radius counts are exact to ~half a cell
+  merge_lookup: false         # true = also write postcode_dataset.parquet (lookup + features, lots of RAM)
+
+spine:
+  include_terminated: false   # features for live postcodes
+  countries: null             # e.g. [E, W]
+  bbox: null                  # [xmin, ymin, xmax, ymax] in BNG metres to run a test area
+
+# --- named point datasets used below ----------------------------------------
+points:
+  crimes:            {file: police/crimes.parquet}
+  burglary:          {file: police/crimes.parquet, filter: {crime_type: Burglary}}
+  violent_crime:     {file: police/crimes.parquet, filter: {crime_type: Violence and sexual offences}}
+  antisocial:        {file: police/crimes.parquet, filter: {crime_type: Anti-social behaviour}}
+  vehicle_crime:     {file: police/crimes.parquet, filter: {crime_type: Vehicle crime}}
+  stop_search:       {file: police/stop_and_search.parquet}
+  collisions:        {file: road_safety/collision.parquet}
+  collisions_ksi:    {file: road_safety/collision.parquet, filter: {collision_severity: [1, 2]}}   # fatal or serious
+  schools:           {file: schools/schools.parquet}
+  primary_schools:   {file: schools/schools.parquet, filter: {phaseofeducation_name: Primary}}
+  secondary_schools: {file: schools/schools.parquet, filter: {phaseofeducation_name: [Secondary, All-through]}}
+  rail_stations:     {file: naptan/naptan_stops.parquet, filter: {stoptype: RLY}}
+  bus_stops:         {file: naptan/naptan_stops.parquet, filter: {stoptype: BCT}}
+  metro_tram:        {file: naptan/naptan_stops.parquet, filter: {stoptype: [MET, TMU]}}
+  ferry_terminals:   {file: naptan/naptan_stops.parquet, filter: {stoptype: FER}}
+  airports:          {file: naptan/naptan_stops.parquet, filter: {stoptype: AIR}}
+  motorway_junctions: {file: os_open/openroads__motorway_junction.parquet}
+  listed_buildings:  {file: historic_england/listed_buildings.parquet}
+  gp_practices:      {file: nhs_ods/gp_practices.parquet}
+  pharmacies:        {file: nhs_ods/pharmacies.parquet}
+  dentists:          {file: nhs_ods/dental_practices.parquet}
+  hospitals_ae:      {file: cqc/cqc_locations.parquet, filter: {primary_inspection_category: Acute hospital - NHS non-specialist}}
+  care_homes:        {file: cqc/cqc_locations.parquet, filter: {care_home: Y}}
+  takeaways:         {file: fsa/food_hygiene.parquet, filter: {businesstype: Takeaway/sandwich shop}}
+  pubs_bars:         {file: fsa/food_hygiene.parquet, filter: {businesstype: Pub/bar/nightclub}}
+  restaurants_cafes: {file: fsa/food_hygiene.parquet, filter: {businesstype: Restaurant/Cafe/Canteen}}
+  supermarkets:      {file: fsa/food_hygiene.parquet, filter: {businesstype: Retailers - supermarkets/hypermarkets}}
+  park_entrances:    {file: os_open/opengreenspace__access_point.parquet}
+  property_sales:    {file: land_registry/price_paid.parquet}
+
+# --- 1. densities: counts within each radius (+ residents/households/addresses) ---
+densities:
+  radii: [1000, 5000]
+  points: [crimes, burglary, violent_crime, antisocial, vehicle_crime, stop_search, collisions,
+           collisions_ksi, schools, rail_stations, bus_stops, listed_buildings, gp_practices,
+           pharmacies, care_homes, takeaways, pubs_bars, restaurants_cafes, supermarkets, property_sales]
+  denominators: [residents, households, addresses]
+
+# --- 6. rates (numerator / denominator within the same radius) --------------
+rates:
+  - {name: crimes_per_1000_residents, numerator: crimes, denominator: residents, per: 1000}
+  - {name: crimes_per_1000_addresses, numerator: crimes, denominator: addresses, per: 1000}
+  - {name: violent_crime_per_1000_residents, numerator: violent_crime, denominator: residents, per: 1000}
+  - {name: antisocial_per_1000_residents, numerator: antisocial, denominator: residents, per: 1000}
+  - {name: burglary_per_100_households, numerator: burglary, denominator: households, per: 100}
+  - {name: vehicle_crime_per_1000_households, numerator: vehicle_crime, denominator: households, per: 1000}
+  - {name: collisions_per_1000_residents, numerator: collisions, denominator: residents, per: 1000}
+  - {name: sales_per_100_addresses, numerator: property_sales, denominator: addresses, per: 100}
+  - {name: takeaways_per_10000_residents, numerator: takeaways, denominator: residents, per: 10000}
+  - {name: gp_practices_per_10000_residents, numerator: gp_practices, denominator: residents, per: 10000}
+
+# --- 2. nearest (straight line) ---------------------------------------------
+nearest:
+  line_step_m: 25
+  pad_m: 50000               # lines/polygons further than this from every postcode are ignored
+  points: [rail_stations, bus_stops, metro_tram, ferry_terminals, airports, motorway_junctions,
+           schools, primary_schools, secondary_schools, gp_practices, pharmacies, dentists,
+           hospitals_ae, care_homes, supermarkets, listed_buildings]
+  second_nearest: [primary_schools, secondary_schools, gp_practices, supermarkets, rail_stations]
+  lines:
+    motorway:    {file: os_open/openroads__road_link.parquet, filter: {road_classification: Motorway}}
+    a_road:      {file: os_open/openroads__road_link.parquet, filter: {road_classification: A Road}}
+    river:       {file: os_open/openrivers__watercourse_link.parquet, filter: {form: [inlandRiver, tidalRiver]}}
+    tidal_river: {file: os_open/openrivers__watercourse_link.parquet, filter: {form: tidalRiver}}
+    canal:       {file: os_open/openrivers__watercourse_link.parquet, filter: {form: canal}}
+    lake:        {file: os_open/openrivers__watercourse_link.parquet, filter: {form: lake}}
+    coast:       {coast: true, file: ons_boundaries/countries.parquet}
+  polygons:
+    greenspace:        {file: os_open/opengreenspace__greenspace_site.parquet}
+    public_park:       {file: os_open/opengreenspace__greenspace_site.parquet, filter: {function: Public Park Or Garden}}
+    playing_field:     {file: os_open/opengreenspace__greenspace_site.parquet, filter: {function: Playing Field}}
+    ancient_woodland:  {file: natural_england/ancient_woodland.parquet}
+    national_park:     {file: ons_boundaries/national_parks.parquet}
+    aonb:              {file: natural_england/aonb.parquet}
+    built_up_area:     {file: os_open/builtupareas__os_open_built_up_areas.parquet}
+
+# --- 9. land cover share within radius + road density -----------------------
+landcover:
+  radii: [500, 2000]
+  layers:
+    greenspace:       {file: os_open/opengreenspace__greenspace_site.parquet}
+    public_park:      {file: os_open/opengreenspace__greenspace_site.parquet, filter: {function: [Public Park Or Garden, Playing Field]}}
+    built_up:         {file: os_open/builtupareas__os_open_built_up_areas.parquet}
+    ancient_woodland: {file: natural_england/ancient_woodland.parquet}
+    woodland:         {file: os_open/openzoomstack__woodland.parquet}        # needs OpenZoomstack (4.3 GB) extracted
+    surface_water:    {file: os_open/openzoomstack__surfacewater.parquet}    # needs OpenZoomstack
+  road_density:
+    roads:       {file: os_open/openroads__road_link.parquet}
+    major_roads: {file: os_open/openroads__road_link.parquet, filter: {road_classification: [Motorway, A Road]}}
+
+# --- 11. terrain (OS Terrain 50) --------------------------------------------
+terrain:
+  relative_height_radii: [500, 2000]
+
+# --- 10. water: height above the nearest river ------------------------------
+water:
+  height_above: {file: os_open/openrivers__watercourse_link.parquet, filter: {form: [inlandRiver, tidalRiver]}}
+  low_lying: {height_m: 3, within_m: 500}
+
+# --- 8. travel over the road network (OS Open Roads) ------------------------
+network:
+  roads: os_open/openroads__road_link.parquet
+  pad_m: 15000                # road network loaded this far beyond the postcodes
+  walk:
+    speed_kmh: 4.8
+    exclude_classes: [Motorway]
+    max_m: 20000
+    targets: [rail_stations, bus_stops, primary_schools, secondary_schools, gp_practices, pharmacies,
+              supermarkets, park_entrances]
+    count_within_min: {rail_stations: 15}
+    max_count_targets: 20000
+  drive:
+    hop_speed_kmh: 20
+    max_min: 180
+    targets: [motorway_junctions, hospitals_ae, rail_stations]
+    speeds_kmh: {}            # override e.g. {A Road: 60}
+
+# --- 12. house price trend --------------------------------------------------
+house_prices:
+  radius: 1000
+  windows: [0, 1, 3, 5]       # years back; needs land_registry start >= 6 years ago for w5
+  min_sales: 5
+
+# --- 13. crime trends + LSOA crime rates ------------------------------------
+crime:
+  trends: true                # 12m vs prior 12m needs police start >= 24 months back
+  lsoa_rates: true
+
+# --- 4. neighbouring LSOAs (sparse adjacency) -------------------------------
+neighbours:
+  file: ons_boundaries/lsoa21.parquet
+  key: lsoa21cd
+  steps: [1, 2, 5]
+  tolerance_m: 1
+  lookup_columns: [imd_index_of_multiple_deprivation_imd_score, imd_income_score_rate,
+                   imd_living_environment_score]
