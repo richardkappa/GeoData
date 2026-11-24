@@ -292,8 +292,9 @@ def run_terrain(F: Features, cfg, data_dir):
         return None
     tif = data_dir / "extract" / "os_open" / "terrain50.tif"
     if not tif.exists():
-        z = data_dir / "raw" / "os_open" / "terr50_gagg_gb.zip"
-        if not z.exists():
+        zs = sorted((data_dir / "raw" / "os_open").glob("terr50*.zip"))
+        z = zs[0] if zs else None
+        if z is None:
             log.warning("terrain skipped: download Terrain50 (os_open products) first")
             return None
         with io.Timer("terrain mosaic"):
@@ -407,8 +408,48 @@ def run_house_prices(F: Features, cfg, data_dir, full, grid, bbox_pad, counts):
                               pc.equal(P.table["old_new"], "Y").to_numpy(zero_copy_only=False),
                               grid, sp.x, sp.y, radius=r, windows=tuple(hp.get("windows", [0, 1, 3, 5])),
                               addresses_in_radius=addr, min_sales=hp.get("min_sales", 5))
+    last = int(np.nanmax(trends.days(P.table["date_of_transfer"])))
     for k, v in res.items():
-        F.add(k, v, "house_prices", "w0 = latest 12 months, wN = the 12 months starting N years earlier")
+        F.add(k, v, "house_prices", _house_price_note(k, r, last, hp.get("min_sales", 5)))
+
+
+def _house_price_note(col: str, radius, last_day: int, min_sales: int) -> str:
+    """Plain-English description of a house price column, with the dates each window covers."""
+    import datetime as dt
+
+    def dates(w: int) -> str:
+        end = dt.date(1970, 1, 1) + dt.timedelta(days=last_day - round(w * 365.25))
+        start = dt.date(1970, 1, 1) + dt.timedelta(days=last_day - round((w + 1) * 365.25) + 1)
+        return f"{start:%b %Y} to {end:%b %Y}"
+
+    def period(w: int) -> str:
+        if w == 0:
+            return f"the latest 12 months of sales ({dates(0)})"
+        return f"a 12-month period {w} year{'s' if w > 1 else ''} before the latest sales ({dates(w)})"
+
+    km = f"{int(radius) / 1000:g} km"
+    where = f"within {km} of the postcode"
+    std = "standard residential sales only (excludes repossessions, buy-to-let portfolios and other non-market sales)"
+    if m := re.fullmatch(r"hp_change_\d+m_w0_vs_w(\d+)", col):
+        w = int(m.group(1))
+        return (f"How much the typical sale price {where} has changed over {w} year{'s' if w > 1 else ''}: "
+                f"sales in {dates(0)} compared with sales in {dates(w)}, as a fraction "
+                f"(0.10 = prices 10% higher now, -0.05 = 5% lower). "
+                f"Blank where either period has fewer than {min_sales} sales")
+    w = int(re.search(r"_w(\d+)$", col).group(1))
+    if col.startswith("hp_price_"):
+        return (f"Typical sale price (£, geometric mean, rounded to £100) of homes sold {where} in {period(w)}; "
+                f"{std}. The geometric mean is less pulled up by a few very expensive sales than a simple average. "
+                f"Blank where there were fewer than {min_sales} sales")
+    if col.startswith("hp_sales_per_100_addresses_"):
+        return (f"Homes sold {where} in {period(w)} per 100 addresses in the same area: "
+                f"how often property changes hands (turnover). Standard sales only")
+    if col.startswith("hp_sales_"):
+        return f"Number of homes sold {where} in {period(w)}; {std}"
+    if col.startswith("hp_newbuild_share_"):
+        return (f"Share of homes sold {where} in {period(w)} that were new builds (0 to 1: 0.25 = a quarter). "
+                f"Standard sales only")
+    return f"house price measure {where}, {period(w)}"
 
 
 def _lookup_by_area(F: Features, area_tab: pa.Table, key: str, group: str, notes: dict | None = None):

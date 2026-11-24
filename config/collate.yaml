@@ -55,6 +55,9 @@ joins:
      note: Ofcom Connected Nations fixed broadband coverage}
   - {name: ofcom_mobile, type: postcode, file: ofcom/mobile_postcode.parquet,
      note: Ofcom Connected Nations mobile coverage (4G/5G by operator, indoor/outdoor)}
+  # used when Ofcom's release has no postcode-level mobile file (2025 does not)
+  - {name: ofcom_mobile_la, type: area, spine_col: lad26cd, key: laua, file: ofcom/mobile_laua.parquet,
+     note: "Ofcom Connected Nations mobile coverage for the postcode's local authority (4G/5G, indoor/outdoor, voice)"}
 
   # --- services located in the postcode (counts; distances/densities are section 3)
   - name: food_hygiene
@@ -99,6 +102,8 @@ joins:
 
   # --- what the postcode sits inside (point-in-polygon) ----------------------
   - {name: aonb, type: polygon, file: natural_england/aonb.parquet, columns: [name], prefix: aonb_}
+  - {name: lad19, type: polygon, file: ons_boundaries/lad19.parquet, columns: [lad19cd], rename: {lad19cd: lad19cd},
+     note: "local authority district as at December 2019 (for the OS equal-area cartogram)"}
   - {name: sssi, type: polygon, how: flag, file: natural_england/sssi.parquet}
   - {name: ancient_woodland, type: polygon, how: flag, file: natural_england/ancient_woodland.parquet}
   - {name: local_nature_reserve, type: polygon, how: flag, file: natural_england/local_nature_reserves.parquet}

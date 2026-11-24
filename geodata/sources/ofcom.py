@@ -27,6 +27,7 @@ import logging
 import re
 import zipfile
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import urljoin
 
 import pyarrow as pa
@@ -137,6 +138,59 @@ def _product(settings, params, raw, name, zips, urls_found, prefix, out):
     return out
 
 
+# Local-authority mobile table: each measure is split into the % covered by 0..4
+# operators (suffix _0.._4). These readable summaries are kept by default.
+MOBILE_AREA_COLUMNS = {
+    "mob_4g_outdoor_all_operators_pct": ("4G_prem_out_4", "premises with outdoor 4G from all operators (%)"),
+    "mob_4g_indoor_all_operators_pct": ("4G_prem_in_4", "premises with indoor 4G from all operators (%)"),
+    "mob_4g_indoor_none_pct": ("4G_prem_in_0", "premises with no indoor 4G from any operator (%)"),
+    "mob_4g_landmass_all_operators_pct": ("4G_geo_out_4", "land area with outdoor 4G from all operators (%)"),
+    "mob_4g_landmass_none_pct": ("4G_geo_out_0", "land area with no outdoor 4G (%)"),
+    "mob_voice_indoor_all_operators_pct": ("Voice_prem_in_4", "premises with indoor voice calls from all operators (%)"),
+    "mob_voice_indoor_none_pct": ("Voice_prem_in_0", "premises with no indoor voice signal (%)"),
+    "mob_5g_outdoor_any_operator_pct": ("100-5G_high_confidence_prem_out_0",
+                                        "premises with outdoor 5G (high confidence) from at least one operator (%)"),
+    "mob_5g_outdoor_all_operators_pct": ("5G_high_confidence_prem_out_4",
+                                         "premises with outdoor 5G (high confidence) from all operators (%)"),
+    "mob_4g_a_b_roads_in_car_all_operators_pct": ("4G_abrd_in_4", "A and B roads with in-car 4G from all operators (%)"),
+}
+
+
+def _mobile_area(zs, out, columns="default", recode: dict | None = None) -> Path | None:
+    """Ofcom's local-authority mobile table -> one row per local authority (key ``laua``)."""
+    import pandas as pd
+    frame = None
+    for z in zs:
+        with zipfile.ZipFile(z) as zf:
+            m = next((n for n in zf.namelist() if re.search(r"(?i)mobile_coverage_laua.*\.csv$", n)), None)
+            if m:
+                frame = pd.read_csv(BytesIO(zf.read(m)), dtype={"laua": str, "laua_name": str})
+                break
+    if frame is None:
+        return None
+    vals = frame.drop(columns=["laua", "laua_name"]).apply(pd.to_numeric, errors="coerce")
+    # blanks mean 0% where the other operator counts of the same measure are filled in
+    for grp in {re.sub(r"_\d$", "_", c) for c in vals.columns if re.search(r"_\d$", c)}:
+        cols = [c for c in vals.columns if c.startswith(grp) and re.fullmatch(r"\d", c[len(grp):])]
+        filled = vals[cols].notna().any(axis=1)
+        vals.loc[filled, cols] = vals.loc[filled, cols].fillna(0)
+    # Ofcom may use older local authority codes than the NSPL (e.g. Barnsley/Sheffield recoded in 2026)
+    out_df = pd.DataFrame({"laua": frame["laua"].replace(recode or {})})
+    if columns == "all":
+        for c in vals.columns:
+            out_df["mob_" + io.snake(c)] = vals[c]
+    else:
+        for name, (src, _) in MOBILE_AREA_COLUMNS.items():
+            if src.startswith("100-"):
+                if src[4:] in vals:
+                    out_df[name] = 100 - vals[src[4:]]
+            elif src in vals:
+                out_df[name] = vals[src]
+    io.write_table(pa.Table.from_pandas(out_df, preserve_index=False), out,
+                   meta={"files": [z.name for z in zs], "level": "local authority (laua)"})
+    return out
+
+
 @source("ofcom", order=55, keys=["postcode_ns"],
         description="Ofcom Connected Nations fixed broadband and mobile coverage by postcode")
 def ofcom(settings, params):
@@ -175,6 +229,15 @@ def ofcom(settings, params):
         p = _product(settings, params, raw, name, zips, urls, prefix, out)
         if p:
             written.append(p)
+        elif name == "mobile" and zips():
+            # no postcode-level mobile file in the release: fall back to local authority level
+            area_out = settings.out("ofcom") / "mobile_laua.parquet"
+            if io.is_fresh(area_out, settings.reprocess or settings.force):
+                written.append(area_out)
+            elif _mobile_area(zips(), area_out, params.get("mobile_area_columns", "default"),
+                              params.get("laua_recode")):
+                log.info("ofcom mobile: using local authority level coverage instead (mobile_laua.parquet)")
+                written.append(area_out)
     if not written:
         raise FileNotFoundError(f"no Ofcom zip available - see the notes above, or place it in {raw}")
     return written

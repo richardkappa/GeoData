@@ -1,0 +1,188 @@
+# =============================================================================
+# Section 4 - visualisations (HTML)
+# -----------------------------------------------------------------------------
+# python 04_visualise.py                    -> <data_dir>/viz/index.html (links to everything)
+# python 04_visualise.py --only minimaps    -> viz/minimaps.html  (static 5 km mini maps)
+# python 04_visualise.py --only interactive -> viz/interactive_<area>.html (feature explorer)
+# =============================================================================
+
+global:
+  data_dir: data
+  output_dir: viz            # under data_dir (git-ignored)
+  # Background tiles for the street maps. The pages are local files: OpenStreetMap's own
+  # tile servers refuse them and CARTO needs an API key. CARTO is used when the
+  # environment variable CARTO_API_KEY is set (free key: carto.com/basemaps/apikey; never
+  # put the key itself in this file), otherwise Esri's tiles, which need no key.
+  basemaps:
+    streets: {url: 'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key={key}', key_env: CARTO_API_KEY,
+              attribution: '&copy; OpenStreetMap contributors &copy; CARTO', max_zoom: 19, fallback: esri_streets}
+    light:   {url: 'https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key={key}', key_env: CARTO_API_KEY,
+              attribution: '&copy; OpenStreetMap contributors &copy; CARTO', max_zoom: 19, fallback: esri_light}
+
+# --- key locations ----------------------------------------------------------
+# Either `xy: [easting, northing]` (British National Grid) or `postcode:`
+# (looked up in the NSPL). The first 16 come from the original project.
+locations:
+  Grasmere:        {xy: [334692, 506545]}
+  South_London:    {xy: [535493, 171250]}
+  Loch_Lomond:     {xy: [238450, 690986]}
+  Barrow_in_Furness: {postcode: LA14 2LD, note: Barrow-in-Furness town hall}
+  Croydon:         {xy: [532621, 165313]}
+  St_Pauls:        {xy: [532052, 181145]}
+  M25:             {xy: [503078, 178200]}
+  M4_junction:     {xy: [519377, 178360]}
+  M6_junctions:    {xy: [357659, 425462]}
+  Kendal:          {xy: [353086, 492882]}
+  Milford_Haven:   {xy: [190649, 205747]}
+  Birmingham:      {xy: [409295, 290319]}
+  Euston:          {xy: [529947, 182697]}
+  Southampton:     {xy: [441934, 111013]}
+  Windermere:      {xy: [341217, 498029]}
+  Avonmouth:       {xy: [351730, 178243]}
+  # tourist areas
+  Bath:            {postcode: BA1 1LT, note: Bath Abbey}
+  York:            {postcode: YO1 7HH, note: York Minster}
+  Edinburgh:       {postcode: EH1 2NG, note: Edinburgh Castle}
+  St_Ives:         {postcode: TR26 1LP, note: St Ives harbour, Cornwall}
+  Keswick:         {postcode: CA12 5DG, note: Keswick, Lake District}
+  Llanberis:       {postcode: LL55 4UR, note: Llanberis, foot of Snowdon}
+
+# --- static mini maps -------------------------------------------------------
+# Every location as a size_m x size_m square. Layers are drawn in order.
+# kind: polygon | line | point. `by` + `styles` style features by a column.
+# show: false = unticked by default in the interactive explorer (minimap_explorer.html).
+minimaps:
+  size_m: 5000
+  columns: 4                 # maps per row in the gallery
+  dpi: 110
+  sea_colour: '#cfe3f3'
+  # explorer LSOA choropleth: uses the cartogram/choropleth variable list
+  lsoa: {file: ons_boundaries/lsoa21_detail.parquet, fallback_file: ons_boundaries/lsoa21.parquet,
+         key: lsoa21cd, name_col: lsoa21nm}
+  layers:
+    - {name: Land, show: false, file: ons_boundaries/countries.parquet, kind: polygon, style: {color: '#fbfaf5', edgecolor: '#7a9cb8', linewidth: 0.6}}
+    - {name: Built-up area, show: false, file: os_open/builtupareas__os_open_built_up_areas.parquet, kind: polygon, style: {color: '#ece6dc'}}
+    - {name: Foreshore, show: false, file: os_open/openzoomstack__foreshore.parquet, kind: polygon, style: {color: '#ede3c4'}}
+    - {name: Greenspace, file: os_open/opengreenspace__greenspace_site.parquet, kind: polygon, style: {color: '#cfe8bf'}}
+    - {name: Woodland, file: os_open/openzoomstack__woodland.parquet, kind: polygon, style: {color: '#b4d7a0'}}
+    - {name: Ancient woodland, file: natural_england/ancient_woodland.parquet, kind: polygon, style: {color: '#86bd72'}}
+    - {name: Lakes and rivers, file: os_open/openzoomstack__surfacewater.parquet, kind: polygon, style: {color: '#9cc7e8', zorder: 2}}
+    - {name: Conservation area, file: historic_england/conservation_areas.parquet, kind: polygon, style: {color: none, edgecolor: '#8e5ea2', linewidth: 0.8, hatch: '////', alpha: 0.6}}
+    - {name: Scheduled monument, file: historic_england/scheduled_monuments.parquet, kind: polygon, style: {color: '#d9b38c', edgecolor: '#8c5a2b', linewidth: 0.4}}
+    - name: Water
+      file: os_open/openrivers__watercourse_link.parquet
+      kind: line
+      by: form
+      styles:                # lake outlines come from Zoomstack surface water; Open Rivers lake centre-lines not drawn
+        inlandRiver: {color: '#4a90c8', linewidth: 1.1, zorder: 3}
+        tidalRiver:  {color: '#4a90c8', linewidth: 1.6, zorder: 3}
+        canal:       {color: '#2f6fa8', linewidth: 1.1, zorder: 3}
+    - name: Roads
+      file: os_open/openroads__road_link.parquet
+      kind: line
+      by: road_classification
+      styles:
+        Motorway:              {color: '#3b6fd1', linewidth: 2.6, zorder: 6}
+        A Road:                {color: '#d9453a', linewidth: 1.8, zorder: 5}
+        B Road:                {color: '#ef9a3c', linewidth: 1.3, zorder: 4}
+        Classified Unnumbered: {color: '#9a9a9a', linewidth: 0.8, zorder: 3}
+        Unclassified:          {color: '#b5b5b5', linewidth: 0.6, zorder: 3}
+        Not Classified:        {color: '#c8c8c8', linewidth: 0.4, zorder: 3}
+        Unknown:               {color: '#c8c8c8', linewidth: 0.4, zorder: 3}
+    - {name: Railway, file: os_open/openzoomstack__rail.parquet, kind: line, style: {color: '#333333', linewidth: 1.4, zorder: 6}}
+    - {name: Listed building, file: historic_england/listed_buildings.parquet, kind: point, style: {color: '#a3203a', s: 3, zorder: 7}}
+    - {name: Railway station, file: naptan/naptan_stops.parquet, kind: point, filter: {stoptype: RLY}, style: {color: '#111111', marker: s, s: 26, zorder: 8}}
+
+# --- hex cartograms ---------------------------------------------------------
+# Postcode values averaged to each area (weighted by addresses; `agg: sum` to
+# add up instead) and drawn as equal hexagons. Layouts from Open Innovations'
+# hexmaps (https://hexmap.uk, MIT licence); `code` is the lookup column the
+# layout's hex keys match.
+cartograms:
+  layouts:
+    constituencies:
+      label: Westminster constituencies (2024)
+      url: https://raw.githubusercontent.com/odileeds/hexmaps/gh-pages/maps/uk-constituencies-2023.hexjson
+      code: pcon24cd
+    local_authorities:
+      label: Local authorities
+      url: https://raw.githubusercontent.com/odileeds/hexmaps/gh-pages/maps/uk-local-authority-districts-2025.hexjson
+      code: lad26cd
+    os_equal_area_2019:
+      label: Local authorities, equal-area squares (OS, 2019 districts)
+      type: gpkg_squares     # Ordnance Survey equal-area cartogram (OGL v3)
+      url: https://raw.githubusercontent.com/OrdnanceSurvey/equal-area-cartogram/master/local-authority-district/data/geopackage/lad-cartogram-square-2019.gpkg
+      layer: square
+      key: lad_code
+      name_col: lad_name
+      outlines: [region_outline, country_outline]
+      code: lad19cd          # postcode -> 2019 district via the ons_boundaries lad19 polygon join
+    msoa:
+      label: MSOAs, England and Wales (7,264 hexes)
+      type: geojson_polygons
+      url: https://hexmap.uk/layouts/files/msoa-2021.geojson
+      feature_type: hex
+      key: id
+      name_col: n
+      scale: 0.001           # GeoJSON units -> drawing units
+      code: msoa21cd
+  variables: &area_variables
+    hp_price_1000m_w0:                            Typical house price, latest 12 months (£)
+    hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
+    imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England)
+    crimes_per_1000_residents_1km:                Crimes within 1 km per 1,000 residents
+    bb_gigabit_availability_premises:             Gigabit broadband available (% premises)
+    bb_of_premises_below_the_uso:                 Premises below the broadband USO (%)
+    mob_4g_indoor_all_operators_pct:              Indoor 4G from all operators (% premises)
+    mob_5g_outdoor_any_operator_pct:              Outdoor 5G from any operator (% premises)
+    gas_median_cons_kwh:                          Median household gas use (kWh / year)
+    electricity_median_cons_kwh:                  Median household electricity use (kWh / year)
+    walk_rail_stations_min:                       Walking time to nearest railway station (minutes)
+    walk_gp_practices_min:                        Walking time to nearest GP practice (minutes)
+    drive_hospitals_ae_min:                       Drive time to nearest A&E (minutes)
+    dist_coast_m:                                 Distance to the coast (m)
+    climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)
+    climate_sunshine_hours_avg:                   Annual sunshine, 2023-25 average (hours)
+    climate_temp_mean_c_avg:                      Mean temperature, 2023-25 average (°C)
+    climate_snow_lying_days_avg:                  Days with snow lying, 2023-25 average
+    elevation_m:                                  Height above sea level (m)
+    flood_high_cnt:                               Properties at high flood risk (EA, England)
+    uprn_count:                                   {label: Addresses, agg: sum}
+
+# --- geographic choropleths ---------------------------------------------------
+# The same variables averaged to real boundaries (ONS Open Geography, already
+# extracted by 01_extract.py) and to Ordnance Survey national grid squares.
+choropleths:
+  boundaries:
+    constituencies:    {label: Westminster constituencies (2024), file: ons_boundaries/westminster_2024.parquet,
+                        key: pcon24cd, name_col: pcon24nm, code: pcon24cd, simplify_m: 100}
+    local_authorities: {label: Local authorities, file: ons_boundaries/lad.parquet,
+                        key: lad26cd, name_col: lad26nm, code: lad26cd, simplify_m: 150}
+    msoa:              {label: MSOAs (England and Wales), file: ons_boundaries/msoa21.parquet,
+                        key: msoa21cd, name_col: msoa21nm, code: msoa21cd, simplify_m: 40}
+  grid_km: [5, 10, 25, 50]   # OS national grid squares built from postcode coordinates
+  variables: *area_variables
+
+# --- interactive feature explorer -------------------------------------------
+# One HTML page per area: every postcode in the square as a dot on a street
+# map, coloured by the chosen feature (drop-down), hover for all values.
+interactive:
+  size_m: 5000
+  areas: [South_London, Birmingham, Bath, York, Edinburgh, Windermere, St_Ives]
+  # column: label (columns come from postcode_features.parquet or postcode_lookup.parquet)
+  variables:
+    hp_price_1000m_w0:                            Typical house price within 1 km, latest 12 months (£)
+    hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
+    lr_median_price:                              Median sale price in the postcode (£)
+    imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England; higher = more deprived)
+    crimes_per_1000_residents_1km:                Crimes within 1 km per 1,000 residents
+    bb_gigabit_availability_premises:             Gigabit broadband available (% of premises)
+    gas_median_cons_kwh:                          Median household gas use (kWh / year)
+    walk_rail_stations_min:                       Walking time to nearest railway station (minutes)
+    walk_gp_practices_min:                        Walking time to nearest GP practice (minutes)
+    dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
+    dist_coast_m:                                 Distance to the coast (m)
+    climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)
+    climate_sunshine_hours_avg:                   Annual sunshine, 2023-25 average (hours)
+    climate_temp_mean_c_avg:                      Mean temperature, 2023-25 average (°C)
+    uprn_count:                                   Addresses in the postcode

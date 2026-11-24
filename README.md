@@ -11,11 +11,11 @@ The pipeline runs in four sections, in order:
 |---|---------|-------------|--------|
 | 1 | **Data extraction**: download and standardise each source | `01_extract.py` + `config/extract.yaml` | ✅ built |
 | 2 | **Collation and merges**: one flat lookup row per postcode | `02_collate.py` + `config/collate.yaml` | ✅ flat lookup built |
-| 3 | New data creation: distances, densities, neighbourhood averages | `03_features.py` (planned) | to do |
-| 4 | Visualisations: maps and charts | notebooks (planned) | to do |
+| 3 | **New data creation**: distances, densities, travel times, climate, trends, neighbourhood averages | `03_features.py` + `config/features.yaml` | ✅ built |
+| 4 | **Visualisations**: mini maps and interactive postcode maps, as HTML | `04_visualise.py` + `config/visualise.yaml` | ✅ first version |
 
-Sections 1–3 are plain `.py` scripts. They are long-running batch jobs, so they
-are easier to rerun, schedule and log than notebooks. Section 4 will use notebooks.
+All four sections are plain `.py` scripts. They are long-running batch jobs, so they
+are easier to rerun, schedule and log than notebooks.
 
 ---
 
@@ -53,6 +53,7 @@ Some sources need a key, set as an environment variable:
 |---|---|---|
 | `CEDA_USERNAME` + `CEDA_PASSWORD` | `metoffice_haduk` (1 km HadUK-Grid yearly grids) | free account at https://services.ceda.ac.uk; a 3-day access token is then created automatically through CEDA's token API |
 | `CEDA_TOKEN` (alternative) | `metoffice_haduk` | an access token made by hand on the CEDA site; used while it has more than an hour left |
+| `CARTO_API_KEY` (optional) | section 4 street maps | free key at https://carto.com/basemaps/apikey; without it Esri tiles are used |
 
 ---
 
@@ -177,6 +178,46 @@ table's total.
 
 ---
 
+## Section 4: visualisations (`04_visualise.py`)
+
+Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
+
+* **Mini maps** (`minimaps.html`): a 5 km square around each key location
+  (the original project's list, with Furness now centred on Barrow-in-Furness,
+  plus tourist areas: Bath, York, Edinburgh, St Ives, Keswick, Llanberis),
+  showing roads by class, railways, rivers and lakes, woodland, greenspace,
+  built-up areas, conservation areas, scheduled monuments, listed buildings and
+  stations. One PNG per map is also saved in `viz/minimaps/`.
+* **Mini map explorer** (`minimap_explorer.html`): the same squares on a street
+  map. Pick the location, tick the map layers, and overlay either postcode dots
+  coloured by a feature or an LSOA choropleth (ONS LSOA 2021 boundaries) with
+  the same variables as the choropleths and cartograms. A view can be opened
+  directly, e.g. `minimap_explorer.html#loc=Bath&mode=lsoa&var=2`.
+* **Interactive maps** (`interactive_<area>.html`): every live postcode in an
+  area as a dot on a street map. A drop-down picks which feature colours the
+  dots (house prices and trends, deprivation, crime, broadband, energy use,
+  walking times, climate...); hovering a dot shows all of them.
+* **Cartograms** (`cartograms.html`): features averaged to each area (weighted
+  by addresses) and drawn with every area the same size: Westminster
+  constituencies and local authorities as hexes and MSOAs as 7,264 hexes
+  ([hexmap.uk](https://hexmap.uk), MIT), and the Ordnance Survey equal-area
+  square cartogram of 2019 districts (OGL; postcodes are given their 2019
+  district through the ONS December 2019 boundaries).
+* **Choropleths** (`choropleths.html`): the same variables on real geography:
+  constituencies, local authorities and MSOAs (ONS Open Geography boundaries,
+  simplified for the web) and Ordnance Survey national grid squares of 5, 10, 25
+  and 50 km, labelled with their grid reference.
+
+Locations can be given as BNG coordinates or as a postcode. The layers, styles,
+areas, layouts and variables are all set in `config/visualise.yaml`.
+
+**Background maps.** The pages are opened as local files, which OpenStreetMap's
+own tile servers refuse. CARTO tiles are used when the environment variable
+`CARTO_API_KEY` holds a (free) CARTO basemaps key; never put the key in a repo
+file. Without it the pages use Esri's tiles, which need no key.
+
+---
+
 ## Sources (section 1)
 
 All of these are open data under the Open Government Licence v3 unless noted.
@@ -214,7 +255,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | Source key | Data | Merge key | Notes |
 |---|---|---|---|
 | `environment_agency` ✅ | Environment Agency flood risk by postcode (England): **Risk of Flooding from Rivers and Sea – postcodes in areas at risk** (properties by likelihood band and type) and the **flood risk postcode search tool** data (properties at high/medium/low risk, groundwater risk class) | `postcode_ns` | Files found through the data.gov.uk catalogue, so new releases are picked up automatically |
-| `ofcom` ⚠️ | Ofcom Connected Nations by postcode: fixed broadband coverage (superfast, ultrafast, full fibre, gigabit, below-USO) → `broadband_postcode.parquet` (`bb_*`), and mobile coverage (4G/5G by operator, indoor/outdoor) → `mobile_postcode.parquet` (`mob_*`) | `postcode_ns` | **Not tested.** Ofcom's site may block automated requests. If it does, set `url:` / `mobile_url:` to the zip links, or save the two postcode zips from a browser into `<data_dir>/raw/ofcom/` (a zip with "mobile" in its name is treated as mobile). Keep one release of each, as duplicate postcodes stop the run |
+| `ofcom` ⚠️ | Ofcom Connected Nations: fixed broadband coverage by postcode (superfast, ultrafast, full fibre, gigabit, below-USO, all premises and residential) → `broadband_postcode.parquet` (`bb_*`, `bb_res_*`); mobile coverage (4G/5G, indoor/outdoor, voice) by postcode → `mobile_postcode.parquet`, or, as in the 2025 release which has no postcode file, by local authority → `mobile_laua.parquet` (`mob_*`, joined through the postcode's local authority) | `postcode_ns` | **Not tested.** Ofcom's site may block automated requests. If it does, set `url:` / `mobile_url:` to the zip links, or save the two postcode zips from a browser into `<data_dir>/raw/ofcom/` (a zip with "mobile" in its name is treated as mobile). Keep one release of each, as duplicate postcodes stop the run |
 | `nhs_ods` ✅ | NHS Organisation Data Service (England & Wales): GP practices (6.6k, role RO76), pharmacies, dental practices, NHS trust sites (hospitals and clinics); optionally branch surgeries and independent healthcare | `postcode_ns`, `org_code` | ODS Data Search & Export API, no key needed. Active organisations only |
 | `cqc` ✅ | Care Quality Commission active registered locations (England): care homes with bed numbers, home care, GP surgeries, dentists, hospitals and clinics, with overall rating, UPRN and coordinates | `postcode_ns`, `uprn`, easting/northing | Link found on CQC's "using CQC data" page. The ODS file is read with `python-calamine` in seconds |
 | `fsa` ✅ | Food Standards Agency hygiene ratings: all ~615k rated food businesses in the UK, with business type, rating, scores and coordinates | `postcode_ns`, `fhrsid`, easting/northing | Uses the single all-establishments CSV, falling back to the 363 per-council XML files |
@@ -234,7 +275,8 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | `GB-Hex-5km-GeoSure` ✅ | **New source**: BGS ground stability hazards (shrink-swell, landslide, soluble rocks, compressible ground, collapsible deposits, running sand) | 5 km hexes |
 | `OpenRoads` ✅ | Road links (4m) and motorway junctions | ~590 MB download, streamed in ~1 min, off by default |
 | `OpenNames` | Places, roads and postcode districts | Off by default |
-| `Terrain50` | 50 m elevation model | Download only (raw). It will be sampled at postcodes in section 3 |
+| `Terrain50` | 50 m elevation model | Download only (raw). Section 3 builds a mosaic and samples it at postcodes (elevation, slope, height above rivers) |
+| `OpenZoomstack` | Woodland, surface water (lakes and rivers as polygons), railway lines, foreshore | ~4 GB download; used for land cover features and the mini maps |
 
 ### Environment, heritage, climate
 | Source key | Data | Notes |
@@ -258,6 +300,8 @@ These are other open UK sources that join at postcode or small-area level:
 ```
 01_extract.py            section 1 runner (CLI)
 02_collate.py            section 2 runner: flat postcode lookup
+03_features.py           section 3 runner: postcode features
+04_visualise.py          section 4 runner: HTML mini maps and interactive maps
 config/extract.yaml      what to download, and the source parameters
 config/collate.yaml      which columns and joins go into the postcode lookup
 geodata/
@@ -269,6 +313,8 @@ geodata/
   govuk.py               GOV.UK Content API attachment resolver (follows new releases)
   vector.py              streaming GDAL -> GeoParquet conversion
   collate.py             section 2 join engine (postcode / area / polygon / summary)
+  features/              section 3 feature groups
+  viz/                   section 4 mini maps and interactive pages
   sources/               one module per data family; each registers its extractors
 legacy/                  the original notebooks and KeyFunctions.py (manual downloads, hard-coded local paths)
   Investigations/        earlier experiments (they import ../KeyFunctions, i.e. legacy/KeyFunctions.py)
