@@ -46,7 +46,7 @@ sources:
       - ttwa15cd
       - itl25cd
 
-  ons_nsul:               # UPRN -> postcode + geographies. ~1.5 GB zip, ~40m rows
+  ons_nsul:               # UPRN -> postcode + geographies. ~560 MB zip, ~42m rows
     enabled: false
     regions: null                 # e.g. [LN, SE] to limit to some regions (file suffixes)
     columns: [oa21cd, lsoa21cd, msoa21cd, lad26cd]   # null = all

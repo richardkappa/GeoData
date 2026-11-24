@@ -126,7 +126,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | Source key | Data | Merge key | Output | Notes |
 |---|---|---|---|---|
 | `ons_nspl` ✅ | [ONS National Statistics Postcode Lookup](https://geoportal.statistics.gov.uk/) (latest release found automatically) | `postcode_ns` | `nspl.parquet`: 2.73m postcodes, live and terminated, OA/LSOA/MSOA 2021, LAD, ward, constituency, region, national park, built-up area, rural-urban class, OAC, IMD rank, lat/long and BNG easting/northing | ~185 MB download, 13 s |
-| `ons_nsul` | ONS National Statistics UPRN Lookup | `uprn`, `postcode_ns` | `nsul.parquet` | ~1.5 GB, off by default; can be limited to some regions |
+| `ons_nsul` ✅ | ONS National Statistics UPRN Lookup | `uprn`, `postcode_ns` | `nsul.parquet`: 41.6m UPRNs | ~560 MB download, ~2.5 min, off by default; can be limited to some regions |
 | `os_open: CodePointOpen` ✅ | OS Code-Point Open | `postcode_ns` | `codepoint_open.parquet` | GB postcode centroids and positional quality |
 | `os_open: OpenUPRN` | OS Open UPRN | `uprn` | `open_uprn.parquet` | 41m address points, off by default |
 
@@ -163,7 +163,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 | `BuiltUpAreas` ✅ | OS Open Built Up Areas | Polygons |
 | `Radon_Indicative_Atlas` ✅ | **New source**: BGS/UKHSA radon potential classes | 1 km polygons. NI available with `area: NI` |
 | `GB-Hex-5km-GeoSure` ✅ | **New source**: BGS ground stability hazards (shrink-swell, landslide, soluble rocks, compressible ground, collapsible deposits, running sand) | 5 km hexes |
-| `OpenRoads` | Road links and motorway junctions | ~1 GB, off by default |
+| `OpenRoads` ✅ | Road links (4m) and motorway junctions | ~590 MB download, streamed in ~1 min, off by default |
 | `OpenNames` | Places, roads and postcode districts | Off by default |
 | `Terrain50` | 50 m elevation model | Download only (raw). It will be sampled at postcodes in section 3 |
 
