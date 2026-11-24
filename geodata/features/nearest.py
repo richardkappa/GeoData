@@ -24,7 +24,24 @@ def sample_lines(geoms, step: float = 25.0) -> np.ndarray:
     import shapely
     if len(geoms) == 0:
         return np.empty((0, 2))
-    return shapely.get_coordinates(shapely.segmentize(np.asarray(geoms), step))
+    geoms = np.asarray(geoms)
+    try:
+        return shapely.get_coordinates(shapely.segmentize(geoms, step))
+    except shapely.errors.GEOSException:
+        pass
+    # Some source geometries are degenerate (e.g. a ring collapsed to a single
+    # point by server-side simplification) and GEOS refuses to segmentize them.
+    # Retry one geometry at a time and keep the raw vertices of the bad ones.
+    out, bad = [], 0
+    for g in geoms:
+        try:
+            out.append(shapely.get_coordinates(shapely.segmentize(g, step)))
+        except shapely.errors.GEOSException:
+            bad += 1
+            out.append(shapely.get_coordinates(g))
+    import logging
+    logging.getLogger(__name__).warning("sample_lines: %d degenerate geometries used unsegmentized", bad)
+    return np.concatenate(out) if out else np.empty((0, 2))
 
 
 def nearest_lines(px, py, geoms, step: float = 25.0):
