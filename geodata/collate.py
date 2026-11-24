@@ -368,4 +368,23 @@ def build(extract_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
             failed.append(name)
     if failed:
         log.warning("joins skipped/failed: %s", ", ".join(map(str, failed)))
-    return spine.combine_chunks(), dd.table()
+    return enforce_primary_key(spine).combine_chunks(), dd.table()
+
+
+def enforce_primary_key(t: pa.Table, key: str = POSTCODE_KEY) -> pa.Table:
+    """Make ``key`` the table's primary key: first column, non-null, unique,
+    sorted, declared non-nullable in the schema and recorded in metadata.
+    Raises if the data would violate it (never silently drops rows)."""
+    if key not in t.column_names:
+        raise ValueError(f"primary key column {key!r} missing")
+    nulls = t[key].null_count
+    if nulls:
+        raise ValueError(f"primary key {key!r} has {nulls} null values")
+    dupes = t.num_rows - pc.count_distinct(t[key]).as_py()
+    if dupes:
+        raise ValueError(f"primary key {key!r} has {dupes} duplicate values")
+    t = t.select([key] + [c for c in t.column_names if c != key]).sort_by(key)
+    schema = t.schema.set(0, t.schema.field(0).with_nullable(False))
+    md = dict(schema.metadata or {})
+    md[b"primary_key"] = key.encode()
+    return t.cast(schema.with_metadata(md))

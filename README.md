@@ -121,10 +121,17 @@ Boundary and designation layers can be given in three ways:
 
 ## Section 2: flat postcode lookup (`02_collate.py`)
 
-Builds `<data_dir>/collate/postcode_lookup.parquet`, with **one row per postcode**
-(`postcode_ns`), and `postcode_lookup_dictionary.csv`. The dictionary lists every
+Builds `<data_dir>/collate/postcode_lookup.parquet`, whose **primary key is
+`postcode_ns`**, and `postcode_lookup_dictionary.csv`. The dictionary lists every
 column with its source, join type, key, data type and **coverage** (the share
 of postcodes that have a value).
+
+The primary key is enforced before the file is written. `postcode_ns` is the
+first column, declared `not null` in the Parquet schema, unique, sorted, and
+recorded in the file metadata (`primary_key: postcode_ns`). If any join would
+produce a null or duplicate key, the run stops with an error rather than
+writing a bad file. In pandas, use
+`pd.read_parquet(...).set_index("postcode_ns")`.
 
 Nothing here involves distances, radii or neighbourhoods; those belong to
 section 3. Each column comes from one of four join types set in
