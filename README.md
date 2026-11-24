@@ -199,14 +199,17 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   walking times, climate...); hovering a dot shows all of them.
 * **Cartograms** (`cartograms.html`): features averaged to each area (weighted
   by addresses) and drawn with every area the same size: Westminster
-  constituencies and local authorities as hexes and MSOAs as 7,264 hexes
-  ([hexmap.uk](https://hexmap.uk), MIT), and the Ordnance Survey equal-area
+  constituencies and local authorities as hexes, NHS Primary Care Networks
+  (1,261 hexes; each postcode takes the PCN of its nearest GP practice, an
+  approximation because patients register where they choose) and MSOAs as 7,264
+  hexes ([hexmap.uk](https://hexmap.uk), MIT), and the Ordnance Survey equal-area
   square cartogram of 2019 districts (OGL; postcodes are given their 2019
   district through the ONS December 2019 boundaries).
 * **Choropleths** (`choropleths.html`): the same variables on real geography:
   constituencies, local authorities and MSOAs (ONS Open Geography boundaries,
   simplified for the web) and Ordnance Survey national grid squares of 5, 10, 25
-  and 50 km, labelled with their grid reference.
+  and 50 km, labelled with their grid reference. The background map can be
+  switched off.
 
 Locations can be given as BNG coordinates or as a postcode. The layers, styles,
 areas, layouts and variables are all set in `config/visualise.yaml`.
@@ -256,7 +259,7 @@ All of these are open data under the Open Government Licence v3 unless noted.
 |---|---|---|---|
 | `environment_agency` ✅ | Environment Agency flood risk by postcode (England): **Risk of Flooding from Rivers and Sea – postcodes in areas at risk** (properties by likelihood band and type) and the **flood risk postcode search tool** data (properties at high/medium/low risk, groundwater risk class) | `postcode_ns` | Files found through the data.gov.uk catalogue, so new releases are picked up automatically |
 | `ofcom` ⚠️ | Ofcom Connected Nations: fixed broadband coverage by postcode (superfast, ultrafast, full fibre, gigabit, below-USO, all premises and residential) → `broadband_postcode.parquet` (`bb_*`, `bb_res_*`); mobile coverage (4G/5G, indoor/outdoor, voice) by postcode → `mobile_postcode.parquet`, or, as in the 2025 release which has no postcode file, by local authority → `mobile_laua.parquet` (`mob_*`, joined through the postcode's local authority) | `postcode_ns` | **Not tested.** Ofcom's site may block automated requests. If it does, set `url:` / `mobile_url:` to the zip links, or save the two postcode zips from a browser into `<data_dir>/raw/ofcom/` (a zip with "mobile" in its name is treated as mobile). Keep one release of each, as duplicate postcodes stop the run |
-| `nhs_ods` ✅ | NHS Organisation Data Service (England & Wales): GP practices (6.6k, role RO76), pharmacies, dental practices, NHS trust sites (hospitals and clinics); optionally branch surgeries and independent healthcare | `postcode_ns`, `org_code` | ODS Data Search & Export API, no key needed. Active organisations only |
+| `nhs_ods` ✅ | NHS Organisation Data Service (England & Wales): GP practices (6.6k, role RO76), pharmacies, dental practices, NHS trust sites (hospitals and clinics), and which Primary Care Network each GP practice belongs to (`pcn_members.parquet`); optionally branch surgeries and independent healthcare | `postcode_ns`, `org_code` | ODS Data Search & Export API, no key needed. Active organisations only |
 | `cqc` ✅ | Care Quality Commission active registered locations (England): care homes with bed numbers, home care, GP surgeries, dentists, hospitals and clinics, with overall rating, UPRN and coordinates | `postcode_ns`, `uprn`, easting/northing | Link found on CQC's "using CQC data" page. The ODS file is read with `python-calamine` in seconds |
 | `fsa` ✅ | Food Standards Agency hygiene ratings: all ~615k rated food businesses in the UK, with business type, rating, scores and coordinates | `postcode_ns`, `fhrsid`, easting/northing | Uses the single all-establishments CSV, falling back to the 363 per-council XML files |
 

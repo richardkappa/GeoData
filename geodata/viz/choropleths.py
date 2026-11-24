@@ -99,7 +99,9 @@ html,body{height:100%} body{display:flex;flex-direction:column}
 and Ordnance Survey national grid squares. Boundaries: ONS Open Geography (OGL v3), simplified for the web.
 <a href="index.html">All visualisations</a></p></header>
 <div id="bar"><label>Geography <select id="geo"></select></label><label>Colour by <select id="var"></select></label>
-<label><input type="checkbox" id="empty"> show areas with no value</label></div>
+<label><input type="checkbox" id="empty"> show areas with no value</label>
+<label><input type="checkbox" id="bg" checked> background map</label>
+<label><input type="checkbox" id="lines" checked> boundary lines</label></div>
 <div id="map"></div>
 <script>
 const D = __DATA__;
@@ -136,15 +138,29 @@ function recolour() {
   const nums = V.filter(v => typeof v === 'number').sort((a, b) => a - b);
   const q = p => nums[Math.min(nums.length - 1, Math.floor(p * nums.length))];
   breaks = nums.length ? [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))] : [];
+  const w = document.getElementById('lines').checked ? 0.4 : 0;   // boundary lines on/off
   layer.eachLayer(p => { const c = colour(V[p.options._i]);
-    p.setStyle(c ? {fillColor: c, fillOpacity: 0.75, opacity: 1} : {fillColor: '#bbb', fillOpacity: empty.checked ? 0.35 : 0, opacity: empty.checked ? 1 : 0}); });
+    p.setStyle(c ? {fillColor: c, fillOpacity: 0.75, opacity: 1, weight: w}
+                 : {fillColor: '#bbb', fillOpacity: empty.checked ? 0.35 : 0, opacity: empty.checked ? 1 : 0, weight: w}); });
   let h = '<b>' + label + '</b><br>';
   if (nums.length) { const edges = [nums[0], ...breaks, nums[nums.length - 1]];
     for (let k = 0; k <= breaks.length; k++) h += '<i style="background:' + PAL[Math.round(k * (PAL.length - 1) / Math.max(breaks.length, 1))] + '"></i>' + fmt(edges[k]) + ' to ' + fmt(edges[k + 1]) + '<br>'; }
   h += '<span style="color:#777">eighths (quantiles) of the areas shown</span>';
   document.getElementById('legend').innerHTML = h;
 }
-geo.onchange = build; sel.onchange = recolour; empty.onchange = recolour; build();
+let tiles = null; map.eachLayer(l => { if (l instanceof L.TileLayer) tiles = l; });
+document.getElementById('bg').onchange = e => {   // background map on/off (white page behind the areas when off)
+  if (!tiles) return; if (e.target.checked) tiles.addTo(map); else map.removeLayer(tiles);
+  document.getElementById('map').style.background = e.target.checked ? '' : '#fff'; };
+geo.onchange = build; sel.onchange = recolour; empty.onchange = recolour;
+document.getElementById('lines').onchange = recolour;
+// optional start view from the URL, e.g. choropleths.html#geo=2&var=0&bg=0&lines=0
+const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
+if (H.geo && geo.options[+H.geo]) geo.value = H.geo;
+if (H.var && sel.options[+H.var]) sel.value = H.var;
+if (H.lines === '0') document.getElementById('lines').checked = false;
+build();
+if (H.bg === '0') { const b = document.getElementById('bg'); b.checked = false; b.onchange({target: b}); }
 </script></body></html>"""
 
 

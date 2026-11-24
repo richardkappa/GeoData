@@ -32,7 +32,20 @@ ODS_COLS = ["org_code", "name", "national_grouping", "health_geography", "addres
 ODS_KEEP = ["org_code", "name", "postcode", "open_date", "close_date", "status_code", "org_sub_type",
             "parent_code", "national_grouping", "health_geography", "roles"]
 REPORT_NAMES = {"epraccur": "gp_practices", "ebranchs": "gp_branch_surgeries", "edispensary": "pharmacies",
-                "egdpprac": "dental_practices", "ets": "nhs_trust_sites", "ephp": "independent_healthcare_sites"}
+                "egdpprac": "dental_practices", "ets": "nhs_trust_sites", "ephp": "independent_healthcare_sites",
+                "epcncorepartnerdetails": "pcn_members"}
+# GP practice -> Primary Care Network membership (no header row)
+PCN_COLS = ["practice_code", "practice_name", "practice_icb_code", "practice_icb_name", "pcn_code", "pcn_name",
+            "pcn_icb_code", "pcn_icb_name", "join_date", "left_date", "core_partner"]
+
+
+def _pcn_members(f, out):
+    t = io.read_csv(f, names=PCN_COLS, strings=True, encoding="latin1")
+    left = t["left_date"]   # current members only: no leaving date (null or empty)
+    t = t.filter(pc.or_kleene(pc.is_null(left), pc.equal(left, "")))
+    t = t.select(["practice_code", "pcn_code", "pcn_name", "practice_icb_code", "practice_icb_name", "join_date"])
+    io.write_table(t, out, meta={"report": "epcncorepartnerdetails"})
+    return out
 
 
 @source("nhs_ods", order=60, keys=["postcode_ns", "org_code"],
@@ -47,6 +60,9 @@ def nhs_ods(settings, params):
             continue
         f = dl.download(ODS.format(r=report), settings.raw("nhs_ods") / f"{report}.csv",
                         force=settings.force, timeout=max(settings.timeout, 300))
+        if report == "epcncorepartnerdetails":   # different layout: practice -> PCN membership
+            outs.append(_pcn_members(f, out))
+            continue
         t = io.read_csv(f, names=ODS_COLS, strings=True, encoding="latin1")
         t = t.select([c for c in ODS_KEEP if c in t.column_names])
         if params.get("active_only", True):

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io as _io
 import logging
+import warnings
 import zipfile
 from pathlib import Path
 
@@ -127,7 +128,9 @@ def sample(tif: Path, px, py, radii=(500, 2000), block: float = 100000.0):
             out["aspect_deg"][sel] = (np.degrees(np.arctan2(-dzdx, -dzdy)) + 360) % 360
             for r in radii:
                 ring = np.stack([_bilinear(z, fx + np.cos(t) * r / RES, fy + np.sin(t) * r / RES) for t in ang])
-                out[f"relative_height_{int(r)}m"][sel] = e - np.nanmean(ring, axis=0)
+                with warnings.catch_warnings():   # all-NaN rings (e.g. off the coast) are expected -> NaN
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    out[f"relative_height_{int(r)}m"][sel] = e - np.nanmean(ring, axis=0)
     return out
 
 

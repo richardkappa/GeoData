@@ -309,6 +309,33 @@ def run_terrain(F: Features, cfg, data_dir):
     return tif
 
 
+def run_assign(F: Features, cfg, data_dir, full):
+    """Give each postcode an attribute of its nearest point, e.g. the Primary Care Network of the nearest
+    GP practice. Points without the attribute (e.g. practices outside any PCN) are ignored."""
+    for name, spec in (cfg.get("assign") or {}).items():
+        try:
+            P = load_points(data_dir, cfg["points"][spec["points"]], full, columns=[spec["point_key"]])
+        except FileNotFoundError as e:
+            log.warning("assign %s skipped: %s", name, e)
+            continue
+        lk = spec["lookup"]
+        f = data_dir / "extract" / lk["file"]
+        if not f.exists():
+            log.warning("assign %s skipped: %s missing - run 01_extract.py", name, lk["file"])
+            continue
+        lt = pq.read_table(f, columns=[lk["key"], lk["value"]])
+        idx = pc.index_in(P.table[spec["point_key"]], value_set=lt[lk["key"]])
+        vals = lt[lk["value"]].take(pc.fill_null(idx, 0))
+        ok = pc.and_(pc.is_valid(idx), pc.is_valid(vals)).to_numpy(zero_copy_only=False) & np.isfinite(P.x)
+        if not ok.any():
+            log.warning("assign %s skipped: no %s matched %s", name, spec["points"], lk["file"])
+            continue
+        d, i = nearest.nearest_points(F.spine.x, F.spine.y, P.x[ok], P.y[ok])
+        values = vals.filter(pa.array(ok)).take(pa.array(i))
+        F.add(name, values, "assign", spec.get("note", f"{lk['value']} of the nearest {spec['points']}"))
+        log.info("assign %s: %d of %d %s have a value", name, int(ok.sum()), len(ok), spec["points"])
+
+
 CLIMATE_VARS = {   # HadUK-Grid annual variable -> (column stem, description)
     "rainfall": ("rainfall_mm", "annual rainfall (mm)"),
     "tas": ("temp_mean_c", "mean air temperature (Â°C)"),
@@ -569,6 +596,8 @@ def build(data_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
         run_water(F, cfg, data_dir, full, bbox_pad, tif)
     with io.Timer("climate"):
         run_climate(F, cfg, data_dir)
+    with io.Timer("assign"):
+        run_assign(F, cfg, data_dir, full)
     with io.Timer("network"):
         run_network(F, cfg, data_dir, full, bbox_net)
     with io.Timer("house prices"):

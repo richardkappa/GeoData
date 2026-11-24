@@ -413,8 +413,11 @@ def build(extract_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
                 else:
                     raise ValueError(f"unknown join type {kind}")
         except FileNotFoundError as e:
-            log.warning("skip %s: %s", name, e)
-            failed.append(name)
+            if spec.get("optional"):   # an alternative input is expected to be missing (e.g. Ofcom mobile)
+                log.info("skip optional join %s: %s", name, e)
+            else:
+                log.warning("skip %s: %s", name, e)
+                failed.append(name)
         except Exception as e:
             log.exception("join %s failed: %s", name, e)
             failed.append(name)

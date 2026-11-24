@@ -124,8 +124,8 @@ def _product(settings, params, raw, name, zips, urls_found, prefix, out):
         return None
     t = _read_postcode_zips(zs)
     if t is None:
-        log.warning("ofcom %s: no postcode-level CSV in %s (area-level tables only?) - skipped",
-                    name, [z.name for z in zs])
+        (log.info if name == "mobile" else log.warning)(   # mobile falls back to local authority level
+            "ofcom %s: no postcode-level CSV in %s (area-level tables only)", name, [z.name for z in zs])
         return None
     if pc.count_distinct(t[POSTCODE_KEY]).as_py() != t.num_rows:
         raise ValueError(f"ofcom {name}: duplicate postcodes across {[z.name for z in zs]} - keep only one "

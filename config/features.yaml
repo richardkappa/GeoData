@@ -125,6 +125,18 @@ climate:
   variables: [rainfall, tas, tasmax, tasmin, sun, groundfrost, airfrost, snowLying, sfcWind, hurs]
   latest: [rainfall, tas, sun]
 
+# --- 15. assign: attribute of the nearest point -------------------------------
+# A postcode does not belong to a Primary Care Network geographically (PCNs are
+# groups of GP practices, and patients register where they choose), so this is
+# the PCN of the nearest GP practice that is in one: an approximation, used for
+# the PCN hex cartogram.
+assign:
+  nearest_gp_pcn_code:
+    points: gp_practices
+    point_key: org_code
+    lookup: {file: nhs_ods/pcn_members.parquet, key: practice_code, value: pcn_code}
+    note: Primary Care Network of the nearest GP practice that belongs to one (approximation)
+
 # --- 10. water: height above the nearest river ------------------------------
 water:
   height_above: {file: os_open/openrivers__watercourse_link.parquet, filter: {form: [inlandRiver, tidalRiver]}}

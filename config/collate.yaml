@@ -53,10 +53,11 @@ joins:
      note: EA properties at high/medium/low flood risk and groundwater risk class (England)}
   - {name: ofcom_broadband, type: postcode, file: ofcom/broadband_postcode.parquet,
      note: Ofcom Connected Nations fixed broadband coverage}
-  - {name: ofcom_mobile, type: postcode, file: ofcom/mobile_postcode.parquet,
+  # mobile coverage: by postcode when Ofcom publishes it, otherwise by local authority
+  # (the 2025 release has only the latter); whichever file is missing is skipped quietly
+  - {name: ofcom_mobile, type: postcode, file: ofcom/mobile_postcode.parquet, optional: true,
      note: Ofcom Connected Nations mobile coverage (4G/5G by operator, indoor/outdoor)}
-  # used when Ofcom's release has no postcode-level mobile file (2025 does not)
-  - {name: ofcom_mobile_la, type: area, spine_col: lad26cd, key: laua, file: ofcom/mobile_laua.parquet,
+  - {name: ofcom_mobile_la, type: area, spine_col: lad26cd, key: laua, file: ofcom/mobile_laua.parquet, optional: true,
      note: "Ofcom Connected Nations mobile coverage for the postcode's local authority (4G/5G, indoor/outdoor, voice)"}
 
   # --- services located in the postcode (counts; distances/densities are section 3)

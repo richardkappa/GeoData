@@ -174,7 +174,8 @@ sources:
 
   nhs_ods:                # NHS Organisation Data Service (England & Wales)
     enabled: true
-    reports: [epraccur, edispensary, egdpprac, ets]   # GP practices, pharmacies, dentists, NHS trust sites
+    reports: [epraccur, edispensary, egdpprac, ets, epcncorepartnerdetails]
+                                  # GP practices, pharmacies, dentists, NHS trust sites, GP practice -> PCN membership
                                   # also: ebranchs (branch surgeries), ephp (independent healthcare)
     active_only: true
     gp_roles: [RO76]              # epraccur ODS role: RO76 = GP practice; null keeps out-of-hours, walk-in ...

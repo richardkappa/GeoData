@@ -32,7 +32,8 @@ def _postcode_table(data_dir: Path, codes: list[str], variables: dict) -> pa.Tab
              *(c for c in variables if c in lnames and c not in fnames)]
     lt = pq.read_table(lookup_f, columns=list(dict.fromkeys(lcols)))
     if fnames:
-        ft = pq.read_table(feat_f, columns=[POSTCODE_KEY, *(c for c in variables if c in fnames)])
+        fcols = [*(c for c in variables if c in fnames), *(c for c in codes if c in fnames and c not in lnames)]
+        ft = pq.read_table(feat_f, columns=[POSTCODE_KEY, *dict.fromkeys(fcols)])
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
         lt = lt.filter(pc.is_valid(idx))   # live postcodes only (the features spine)
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
@@ -240,6 +241,10 @@ function draw() {
   document.getElementById('top').innerHTML = ranked.slice(0, 5).map(li).join('');
   document.getElementById('bottom').innerHTML = ranked.slice(-5).reverse().map(li).join('');
 }
+// optional start view from the URL, e.g. cartograms.html#lay=3&var=0
+const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
+if (H.lay && lay.options[+H.lay]) lay.value = H.lay;
+if (H.var && sel.options[+H.var]) sel.value = H.var;
 lay.onchange = draw; sel.onchange = draw; draw();
 </script></body></html>"""
 
@@ -271,7 +276,8 @@ def build_cartograms(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
             hexes = [hj["hexes"][c] for c in codes]
             shape = {"kind": "hex", "layout": hj.get("layout", "odd-r"),
                      "q": [h["q"] for h in hexes], "r": [h["r"] for h in hexes]}
-            names = [h.get("n", c) for h, c in zip(hexes, codes)]
+            nk = spec.get("name_key", "n")
+            names = [str(h.get(nk, c)) for h, c in zip(hexes, codes)]
         elif spec["type"] == "geojson_polygons":   # polygon cartogram as GeoJSON (hexmap.uk MSOA hexes)
             shape, codes, names = _geojson_layout(f, spec)
         elif spec["type"] == "gpkg_polygons":   # polygon cartogram in a GeoPackage
