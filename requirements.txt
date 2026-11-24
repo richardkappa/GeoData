@@ -1,0 +1,21 @@
+# pip alternative to environment.yml (conda is easier on Windows for GDAL/PROJ)
+numpy>=1.26
+pandas>=2.1
+pyarrow>=15
+geopandas>=1.0
+shapely>=2.0
+pyogrio>=0.8
+pyproj>=3.6
+requests>=2.31
+pyyaml>=6
+xarray>=2024.1
+netCDF4
+h5netcdf
+openpyxl
+odfpy
+scipy
+scikit-learn
+matplotlib
+libpysal
+networkx
+ipykernel
