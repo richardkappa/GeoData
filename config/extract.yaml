@@ -13,7 +13,7 @@
 # =============================================================================
 
 global:
-  data_dir: data          # relative to the repo, or absolute e.g. D:/GeoData. Env GEODATA_DIR overrides
+  data_dir: data          # relative to the repo, or absolute e.g. /path/to/GeoData. Env GEODATA_DIR overrides
   crs: EPSG:27700         # British National Grid for every output geometry / easting-northing
   threads: 4              # parallel HTTP requests for paged APIs (I/O bound, not CPU)
   timeout: 120            # seconds per HTTP request

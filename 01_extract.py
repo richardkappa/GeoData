@@ -10,7 +10,7 @@ Examples
     python 01_extract.py --list                # show sources and status
     python 01_extract.py --only ons_nspl naptan
     python 01_extract.py --skip police --reprocess
-    python 01_extract.py --config my.yaml --data-dir D:/GeoData
+    python 01_extract.py --config my.yaml --data-dir /path/to/GeoData
 """
 from __future__ import annotations
 

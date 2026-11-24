@@ -30,13 +30,13 @@ python 01_extract.py                     # run every enabled source
 python 01_extract.py --only ons_nspl census_2021 imd_england
 ```
 
-Data goes to `data/` inside the repo by default. To keep it elsewhere, e.g. on
-the XPS's D: drive, use one of these (the environment variable wins over the
+Data goes to `data/` inside the repo by default. To keep it elsewhere (e.g. a
+larger data drive), use one of these (the environment variable wins over the
 config file):
 
 ```bash
-set GEODATA_DIR=D:/GeoData                # Windows cmd   (PowerShell: $env:GEODATA_DIR="D:/GeoData")
-python 01_extract.py --data-dir D:/GeoData
+export GEODATA_DIR=/path/to/GeoData       # Windows cmd: set GEODATA_DIR=... | PowerShell: $env:GEODATA_DIR="..."
+python 01_extract.py --data-dir /path/to/GeoData
 # or edit global.data_dir in config/extract.yaml
 ```
 
@@ -102,7 +102,7 @@ Boundary and designation layers can be given in three ways:
 > data. The open equivalent is the **UPRN**: `ons_nsul` maps UPRN → postcode and
 > geographies, and `os_open: OpenUPRN` gives UPRN → coordinates.
 
-### Performance (designed for a laptop like the XPS)
+### Performance (designed to run on a modest laptop or desktop)
 * CSVs are parsed by Arrow's multi-threaded C++ reader, which only materialises
   the columns asked for. The 2.7m-row NSPL processes in about 13 s.
 * Postcode cleaning, filtering, type casting and grouping run as Arrow compute
@@ -203,7 +203,7 @@ geodata/
   govuk.py               GOV.UK Content API attachment resolver (follows new releases)
   vector.py              streaming GDAL -> GeoParquet conversion
   sources/               one module per data family; each registers its extractors
-legacy/                  the original notebooks and KeyFunctions.py (manual downloads, D:/ paths)
+legacy/                  the original notebooks and KeyFunctions.py (manual downloads, hard-coded local paths)
 Investigations/          earlier experiments (they import ../KeyFunctions, now in legacy/)
 ```
 
@@ -232,6 +232,6 @@ Then add a `my_source:` block with `enabled: true` to `config/extract.yaml`.
 
 ## Legacy
 The original workflow (`legacy/01_GetData.ipynb`, `legacy/02_CreatePostcodeFile.ipynb`,
-`legacy/KeyFunctions.py`) read hand-downloaded files from `D:/GeoData` into one
+`legacy/KeyFunctions.py`) read hand-downloaded files from a fixed local folder into one
 large GeoDataFrame. It is kept for reference while sections 2–4 are rebuilt.
 Its pygeos functions will move to shapely 2 / scipy KD-trees.
