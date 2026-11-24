@@ -10,7 +10,7 @@ The pipeline runs in four sections, in order:
 | # | Section | Entry point | Status |
 |---|---------|-------------|--------|
 | 1 | **Data extraction**: download and standardise each source | `01_extract.py` + `config/extract.yaml` | ✅ built |
-| 2 | Collation and merges: join everything onto the postcode spine | `02_collate.py` (planned) | to do |
+| 2 | **Collation and merges**: one flat lookup row per postcode | `02_collate.py` + `config/collate.yaml` | ✅ flat lookup built |
 | 3 | New data creation: distances, densities, neighbourhood averages | `03_features.py` (planned) | to do |
 | 4 | Visualisations: maps and charts | notebooks (planned) | to do |
 
@@ -28,6 +28,8 @@ conda activate GeoData
 python 01_extract.py --list              # what's available / enabled
 python 01_extract.py                     # run every enabled source
 python 01_extract.py --only ons_nspl census_2021 imd_england
+
+python 02_collate.py                     # flat postcode lookup from whatever has been extracted
 ```
 
 Data goes to `data/` inside the repo by default. To keep it elsewhere (e.g. a
@@ -117,6 +119,55 @@ Boundary and designation layers can be given in three ways:
 
 ---
 
+## Section 2: flat postcode lookup (`02_collate.py`)
+
+Builds `<data_dir>/collate/postcode_lookup.parquet`, with **one row per postcode**
+(`postcode_ns`), and `postcode_lookup_dictionary.csv`. The dictionary lists every
+column with its source, join type, key, data type and **coverage** (the share
+of postcodes that have a value).
+
+Nothing here involves distances, radii or neighbourhoods; those belong to
+section 3. Each column comes from one of four join types set in
+`config/collate.yaml`:
+
+| Join type | What it does | Used for |
+|---|---|---|
+| `postcode` | table already keyed on `postcode_ns` | DESNZ electricity and gas |
+| `area` | table keyed on an area code the NSPL carries (`spine_col`, plus `key` if the file names it differently) | area names, Census 2021 (OA), IMD 2025 (LSOA) |
+| `polygon` | attributes of the polygon the postcode centroid falls in. `how: first` (attributes), `flag` (inside any), `count`, `max`/`min` | AONB, SSSI, ancient woodland, national park, conservation area, WHS, built-up area, radon class, BGS GeoSure classes, Met Office 1991–2020 climate cell values |
+| `summary` | simple counts or summaries of record tables inside the postcode or its area | addresses (UPRNs) per postcode; Land Registry sales count, median price, last sale date and property-type mix per postcode; police crimes by type in the postcode's LSOA (last N months) |
+
+A test run on the full UK (2.70m postcodes with grid references) produced 346
+columns in about 100 s, peaking at about 6.7 GB of RAM. Coverage follows each
+source's geography:
+
+| Source | Coverage | Why |
+|---|---|---|
+| Census | 89% | England and Wales only |
+| IMD | 84% | England only |
+| Police | 86% | England, Wales and Northern Ireland, without Scotland |
+| Energy | 41–48% | live domestic postcodes |
+| Land Registry | 29% | postcodes with sales in the years extracted |
+
+How it stays fast and light:
+* Joins are **index lookups**. `pyarrow.compute.index_in` finds each postcode's
+  row in the source table, and only the new columns are `take`n and appended.
+  The existing columns are never copied, and row order never changes.
+* Count columns are stored as int32.
+* Polygon lookups put all postcode points in one GEOS STRtree, built once. Each
+  polygon layer is then queried against it, with every polygon prepared a single
+  time. A layer takes 0.1–5 s.
+* Medians and type shares are computed with numpy sorts and `bincount` on
+  integer group ids.
+
+To add a join, append an entry to `joins:` in `config/collate.yaml`. A join whose
+input file hasn't been extracted is skipped with a warning. Set
+`spine.countries: [E, W]` or `include_terminated: false` to make the table
+smaller. `shares: true` on the census join turns counts into proportions of each
+table's total.
+
+---
+
 ## Sources (section 1)
 
 All of these are open data under the Open Government Licence v3 unless noted.
@@ -193,7 +244,9 @@ These are open UK sources that also join at postcode or small-area level:
 
 ```
 01_extract.py            section 1 runner (CLI)
+02_collate.py            section 2 runner: flat postcode lookup
 config/extract.yaml      what to download, and the source parameters
+config/collate.yaml      which columns and joins go into the postcode lookup
 geodata/
   config.py              loads YAML, resolves data_dir
   download.py            cached, resumable, retrying HTTP downloads
@@ -202,6 +255,7 @@ geodata/
   arcgis.py              ArcGIS Online item search and parallel FeatureServer paging
   govuk.py               GOV.UK Content API attachment resolver (follows new releases)
   vector.py              streaming GDAL -> GeoParquet conversion
+  collate.py             section 2 join engine (postcode / area / polygon / summary)
   sources/               one module per data family; each registers its extractors
 legacy/                  the original notebooks and KeyFunctions.py (manual downloads, hard-coded local paths)
 Investigations/          earlier experiments (they import ../KeyFunctions, now in legacy/)
