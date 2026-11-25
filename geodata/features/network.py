@@ -56,13 +56,12 @@ class RoadGraph:
 
     def matrix(self, weight: np.ndarray, mask: np.ndarray | None = None, extra_nodes: int = 0):
         from scipy.sparse import coo_matrix
-        m = np.ones(len(self.u), dtype=bool) if mask is None else mask
+        from .reach import simple_edges
         n = self.n + extra_nodes
+        # one link per junction pair, the quickest: a sparse matrix would add parallel links' costs together
+        u, v, w = simple_edges(self.u, self.v, weight, mask)
         # undirected: one entry each way
-        rows = np.concatenate([self.u[m], self.v[m]])
-        cols = np.concatenate([self.v[m], self.u[m]])
-        w = np.concatenate([weight[m], weight[m]])
-        return coo_matrix((w, (rows, cols)), shape=(n, n)).tocsr()
+        return coo_matrix((np.r_[w, w], (np.r_[u, v], np.r_[v, u])), shape=(n, n)).tocsr()
 
 
 def load_roads(path, bbox=None) -> RoadGraph:

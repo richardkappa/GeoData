@@ -28,7 +28,7 @@ def _load_layer(data_dir: Path, spec: dict):
     extra = [c for c in {*filt, spec.get("by")} if c and c in names]
     if "geometry" in names:
         gdf = gpd.read_parquet(path, columns=[*extra, "geometry"])
-    else:   # plain easting/northing tables (e.g. NaPTAN)
+    else:   # plain easting/northing tables (section 1 gives every point table these: geodata/geocode.py)
         t = pq.read_table(path, columns=[*extra, "easting", "northing"]).to_pandas()
         t = t[t["easting"].notna() & t["northing"].notna()]
         gdf = gpd.GeoDataFrame(t.drop(columns=["easting", "northing"]),
@@ -86,215 +86,6 @@ def _legend_handles(layers):
     return hs
 
 
-EXPLORER = """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mini map explorer</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>__CSS__
-html,body{height:100%} body{display:flex;flex-direction:column}
-#bar{display:flex;gap:18px;align-items:center;padding:10px 26px;background:#fff;border-bottom:1px solid #ddd;flex-wrap:wrap}
-#bar select{font-size:14px;padding:4px;max-width:460px}
-#main{flex:1;display:flex;min-height:0} #map{flex:1}
-#side{width:250px;overflow:auto;background:#fff;border-left:1px solid #ddd;padding:10px 14px;font-size:13px}
-#side label{display:block;margin:3px 0;cursor:pointer} #side h3{font-size:13px;margin:12px 0 4px}
-.allnone{float:right} .allnone button{font-size:11px;padding:1px 7px;margin-left:4px;cursor:pointer;border:1px solid #bbb;border-radius:3px;background:#f4f4f4}
-.allnone button:hover{background:#e6e6e6}
-.sw{display:inline-block;width:18px;height:10px;margin:0 6px 0 4px;vertical-align:middle;border-radius:2px}
-.legend{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;line-height:18px;max-width:300px}
-.legend i{display:inline-block;width:14px;height:14px;margin-right:6px;vertical-align:-2px;border-radius:50%}
-.tip table{border-collapse:collapse;font-size:12px} .tip td{padding:1px 6px} .tip td:last-child{text-align:right;font-weight:600}
-</style></head><body>
-<header><h1>Mini map explorer</h1><p>Pick a location, then choose which map layers and which postcode feature to show.
-__KM__ squares. Open data: OS, Historic England, Natural England, NaPTAN, ONS and others. <a href="index.html">All visualisations</a></p></header>
-<div id="bar"><label>Location <select id="loc"></select></label>
-<label>Overlay <select id="mode"><option value="none">none</option><option value="dots">postcode dots</option>
-<option value="heat">heat surface (postcode values)</option><option value="lsoa">LSOA choropleth</option></select></label>
-<label>Colour by <select id="var"></select></label>
-<label id="smoothL" title="How far each postcode's value spreads: the surface is a distance-weighted average of nearby postcodes">Smoothing
-<select id="smooth"><option value="150">tight (150 m)</option><option value="300" selected>medium (300 m)</option>
-<option value="600">wide (600 m)</option></select></label>
-<label title="Transparency of the overlay (dots, heat surface or LSOA fills)">Opacity <input type="range" id="op" min="10" max="100" value="75"
-style="vertical-align:middle;width:110px"></label><span id="note"></span></div>
-<div id="main"><div id="map"></div><div id="side"><b>Map layers</b>
-<span class="allnone"><button type="button" id="all">All</button><button type="button" id="none">None</button></span>
-<div id="layers"></div>
-<h3>Background</h3><label><input type="checkbox" id="tiles" checked> street map</label></div></div>
-<script>
-const M = __META__;
-window.MINIMAP = {};
-const PAL = ["#440154","#46327e","#365c8d","#277f8e","#1fa187","#4ac16d","#a0da39","#fde725"];
-const map = L.map('map', {preferCanvas: true});
-const tiles = (function () { __TILES__ return null; })();
-let tileLayer = null; map.eachLayer(l => { if (l instanceof L.TileLayer) tileLayer = l; });
-const locSel = document.getElementById('loc'), varSel = document.getElementById('var');
-M.locations.forEach(l => locSel.add(new Option(l.label, l.name)));
-const modeSel = document.getElementById('mode');
-const opSl = document.getElementById('op'), smoothSel = document.getElementById('smooth');
-const op = () => +opSl.value / 100;   // overlay opacity 0.1 - 1
-function fillVars() {   // postcode dots / heat surface and the LSOA choropleth have their own variable lists
-  const keep = varSel.value, list = modeSel.value === 'lsoa' ? M.areaVars : M.vars;
-  varSel.innerHTML = ''; list.forEach((v, i) => varSel.add(new Option(v, i))); varSel.disabled = modeSel.value === 'none';
-  if (keep && varSel.options[+keep]) varSel.value = keep;
-  document.getElementById('smoothL').style.display = modeSel.value === 'heat' ? '' : 'none';
-}
-fillVars();
-const checks = {};
-M.layers.forEach((ly, i) => {
-  const st = ly.styles ? Object.values(ly.styles)[0] : ly.style;
-  const c = st.color === 'none' ? (st.edgecolor || '#888') : (st.color || '#888');
-  const lab = document.createElement('label');
-  lab.innerHTML = '<input type="checkbox" ' + (ly.on ? 'checked' : '') + '><span class="sw" style="background:' + c + '"></span>' + ly.name;
-  checks[i] = lab.querySelector('input'); checks[i].onchange = drawLayers;
-  document.getElementById('layers').appendChild(lab);
-});
-let groups = [], dots = null, cur = null;
-const fmt = v => v === null || v === undefined ? '–' : (typeof v === 'number' ? v.toLocaleString('en-GB') : v);
-function lineStyle(st) { return {color: st.color, weight: Math.max(0.6, (st.linewidth || 1) * 1.3), opacity: 0.95}; }
-function polyStyle(st) { const fill = st.color && st.color !== 'none';
-  return {color: st.edgecolor && st.edgecolor !== 'none' ? st.edgecolor : (fill ? st.color : '#888'), weight: st.linewidth || 0.5,
-          fillColor: fill ? st.color : 'none', fillOpacity: fill ? Math.min(st.alpha || 0.6, 0.6) : 0, opacity: st.edgecolor && st.edgecolor !== 'none' ? 1 : 0.3,
-          dashArray: st.hatch ? '4 3' : null}; }
-function drawLayers() {
-  groups.forEach(g => map.removeLayer(g)); groups = [];
-  const D = window.MINIMAP[cur]; if (!D) return;
-  M.layers.forEach((ly, i) => {
-    if (!checks[i].checked || !D.layers[i]) return;
-    const g = L.layerGroup(), data = D.layers[i];
-    if (ly.kind === 'point') {
-      const st = ly.style || {};
-      data.forEach(p => L.circleMarker(p, {radius: (st.s || 4) > 10 ? 5 : 2.5, color: st.color, fillColor: st.color, fillOpacity: 1,
-        weight: (st.marker === 's') ? 2 : 0}).addTo(g));
-    } else {
-      L.geoJSON(data, {style: f => { const st = ly.styles ? (ly.styles[f.properties.s] || {}) : ly.style;
-        return ly.kind === 'line' ? lineStyle(st) : polyStyle(st); }, interactive: false}).addTo(g);
-    }
-    g.addTo(map); groups.push(g);
-  });
-  drawDots();
-}
-const legend = L.control({position: 'bottomright'});
-legend.onAdd = () => { const d = L.DomUtil.create('div', 'legend'); d.id = 'legend'; d.style.display = 'none'; return d; };
-legend.addTo(map);
-function scale(vals) {
-  const nums = vals.filter(v => typeof v === 'number').sort((a, b) => a - b);
-  const q = p => nums[Math.min(nums.length - 1, Math.floor(p * nums.length))];
-  const br = nums.length ? [...new Set([1, 2, 3, 4, 5, 6, 7].map(j => q(j / 8)))] : [];
-  const col = v => { let j = 0; while (j < br.length && v > br[j]) j++; return PAL[Math.round(j * (PAL.length - 1) / Math.max(br.length, 1))]; };
-  return {nums, br, col};
-}
-function legendHtml(label, s, note) {
-  let h = '<b>' + label + '</b><br>';
-  if (s.nums.length) { const e = [s.nums[0], ...s.br, s.nums[s.nums.length - 1]];
-    for (let j = 0; j <= s.br.length; j++) h += '<i style="background:' + PAL[Math.round(j * (PAL.length - 1) / Math.max(s.br.length, 1))] + '"></i>' + fmt(e[j]) + ' to ' + fmt(e[j + 1]) + '<br>'; }
-  return h + '<span style="color:#777">' + note + '</span>';
-}
-function heatSurface(D, vals, col, sigma) {
-  // Smooth surface of a postcode variable: each pixel = Gaussian-weighted average of nearby postcodes
-  // (weights exp(-d²/2σ²) out to 3σ); pixels with no postcode within ~2σ are left transparent.
-  const b = L.latLngBounds(D.box), s = b.getSouth(), n = b.getNorth(), w = b.getWest(), e = b.getEast();
-  const lat0 = (s + n) / 2, mx = 111320 * Math.cos(lat0 * Math.PI / 180), my = 110540;
-  const W = 220, Hh = Math.round(W * (n - s) * my / ((e - w) * mx));
-  const px = (e - w) * mx / W, cut = 3 * sigma, cs = cut;   // pixel size (m), cut-off, bucket size
-  const pts = [], buckets = new Map();
-  D.pc.pc.forEach((_, i) => { const v = vals[i]; if (typeof v !== 'number') return;
-    const x = (D.pc.lon[i] - w) * mx, y = (n - D.pc.lat[i]) * my, key = Math.floor(x / cs) + ',' + Math.floor(y / cs);
-    pts.push([x, y, v]); (buckets.get(key) || buckets.set(key, []).get(key)).push(pts.length - 1); });
-  if (!pts.length) return null;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = Hh;
-  const ctx = cv.getContext('2d'), img = ctx.createImageData(W, Hh), k2 = 1 / (2 * sigma * sigma), minW = Math.exp(-2);
-  const hex = c => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
-  const cache = {};
-  for (let r = 0; r < Hh; r++) for (let c = 0; c < W; c++) {
-    const x = (c + 0.5) * px, y = (r + 0.5) * px, bx = Math.floor(x / cs), by = Math.floor(y / cs);
-    let sw = 0, sv = 0, best = 0;
-    for (let i = bx - 1; i <= bx + 1; i++) for (let j = by - 1; j <= by + 1; j++) {
-      const bk = buckets.get(i + ',' + j); if (!bk) continue;
-      for (const q of bk) { const p = pts[q], dx = p[0] - x, dy = p[1] - y, d2 = dx * dx + dy * dy;
-        if (d2 > cut * cut) continue; const wt = Math.exp(-d2 * k2); sw += wt; sv += wt * p[2]; if (wt > best) best = wt; } }
-    if (best < minW) continue;   // nothing within ~2 sigma: leave transparent
-    const colr = col(sv / sw), rgb = cache[colr] || (cache[colr] = hex(colr)), o = 4 * (r * W + c);
-    img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = 255;
-  }
-  ctx.putImageData(img, 0, 0);
-  return L.imageOverlay(cv.toDataURL(), b, {opacity: 0.9 * op(), interactive: false});
-}
-function drawDots() {
-  if (dots) { map.removeLayer(dots); dots = null; }
-  const lg = document.getElementById('legend'), k = +varSel.value, D = window.MINIMAP[cur], note = document.getElementById('note');
-  lg.style.display = 'none'; note.textContent = '';
-  if (!D || modeSel.value === 'none') return;
-  if (modeSel.value === 'lsoa') {
-    if (!D.lsoa) { note.textContent = 'no LSOA boundaries here (England and Wales only)'; return; }
-    const vals = D.lsoa.vals[k], s = scale(vals);
-    dots = L.geoJSON(D.lsoa.features, {style: f => { const v = vals[f.properties.i], has = typeof v === 'number';
-        return {color: '#333', weight: 0.6, opacity: Math.min(1, op() + 0.2), fillColor: has ? s.col(v) : '#fff',
-                fillOpacity: has ? 0.8 * op() : 0.1 * op()}; },
-      onEachFeature: (f, l) => l.bindTooltip(() => '<b>' + D.lsoa.names[f.properties.i] + '</b><br>' + M.areaVars[k] + ': <b>' +
-        fmt(vals[f.properties.i]) + '</b>', {sticky: true})});
-    dots.addTo(map);
-    lg.innerHTML = legendHtml(M.areaVars[k], s, 'LSOA averages (weighted by addresses); eighths of the LSOAs shown');
-    lg.style.display = 'block';
-    note.textContent = s.nums.length + ' of ' + vals.length + ' LSOAs have a value';
-    return;
-  }
-  if (!D.pc) return;
-  const vals = D.pc.vars[k], sc = scale(vals), nums = sc.nums, br = sc.br, col = sc.col;
-  if (modeSel.value === 'heat') {
-    dots = heatSurface(D, vals, col, +smoothSel.value);
-    if (dots) dots.addTo(map);
-    lg.innerHTML = legendHtml(M.vars[k], sc, 'eighths of the postcodes in this square; each point of the surface is a ' +
-      'distance-weighted average of nearby postcodes (Gaussian, ' + smoothSel.value + ' m); blank where no postcodes are near');
-    lg.style.display = 'block';
-    note.textContent = nums.length.toLocaleString('en-GB') + ' of ' + vals.length.toLocaleString('en-GB') + ' postcodes have a value';
-    return;
-  }
-  dots = L.layerGroup();
-  D.pc.pc.forEach((p, i) => { const v = vals[i], has = typeof v === 'number';
-    L.circleMarker([D.pc.lat[i], D.pc.lon[i]], {radius: has ? 4.5 : 2.5, weight: 0.5, color: '#222', opacity: op(),
-                                                fillColor: has ? col(v) : '#fff', fillOpacity: has ? 0.95 * op() : 0.4 * op()})
-      .bindTooltip(() => { let r = '<b>' + p + '</b><table>'; M.vars.forEach((lab, j) => r += '<tr' + (j == k ? ' style="background:#fff3c4"' : '') +
-        '><td>' + lab + '</td><td>' + fmt(D.pc.vars[j][i]) + '</td></tr>'); return r + '</table>'; }, {sticky: true, className: 'tip'})
-      .addTo(dots); });
-  dots.addTo(map);
-  let h = '<b>' + M.vars[k] + '</b><br>';
-  if (nums.length) { const e = [nums[0], ...br, nums[nums.length - 1]];
-    for (let j = 0; j <= br.length; j++) h += '<i style="background:' + PAL[Math.round(j * (PAL.length - 1) / Math.max(br.length, 1))] + '"></i>' + fmt(e[j]) + ' to ' + fmt(e[j + 1]) + '<br>'; }
-  lg.innerHTML = h + '<span style="color:#777">eighths within this square</span>'; lg.style.display = 'block';
-  document.getElementById('note').textContent = nums.length.toLocaleString('en-GB') + ' of ' + vals.length.toLocaleString('en-GB') + ' postcodes have a value';
-}
-function show(name) {
-  cur = name;
-  const go = () => { const D = window.MINIMAP[name]; map.fitBounds(D.box);
-    if (window.boxLayer) map.removeLayer(window.boxLayer);
-    window.boxLayer = L.polygon(D.box, {color: '#111', weight: 1.5, fill: false, dashArray: '6 4', interactive: false}).addTo(map);
-    drawLayers(); };
-  if (window.MINIMAP[name]) return go();
-  const s = document.createElement('script'); s.src = 'minimap_data/' + name + '.js?v=__VER__'; s.onload = go;   // build stamp: refetch after a rebuild
-  s.onerror = () => alert('Could not load minimap_data/' + name + '.js - run 04_visualise.py'); document.body.appendChild(s);
-}
-// tick or untick every map layer at once (one redraw, not one per layer)
-const setAll = on => { Object.values(checks).forEach(c => c.checked = on); drawLayers(); };
-document.getElementById('all').onclick = () => setAll(true);
-document.getElementById('none').onclick = () => setAll(false);
-document.getElementById('tiles').onchange = e => { if (tileLayer) e.target.checked ? tileLayer.addTo(map) : map.removeLayer(tileLayer); };
-locSel.onchange = () => show(locSel.value); varSel.onchange = drawDots;
-modeSel.onchange = () => { fillVars(); drawDots(); };
-smoothSel.onchange = drawDots;
-// opacity: the heat surface is one image (fast); dots and LSOA fills are restyled by redrawing
-opSl.oninput = () => { if (dots && dots.setOpacity) dots.setOpacity(0.9 * op()); else drawDots(); };
-// optional start state from the URL, e.g. minimap_explorer.html#loc=Bath&mode=lsoa&var=0
-const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=').map(decodeURIComponent)));
-if (H.loc && M.locations.some(l => l.name === H.loc)) locSel.value = H.loc;
-if (H.mode) { modeSel.value = H.mode; fillVars(); }
-if (H.var) varSel.value = H.var;
-if (H.op) opSl.value = H.op;
-if (H.smooth) smoothSel.value = H.smooth;
-fillVars();
-show(locSel.value);
-</script></body></html>"""
-
-
 def _geojson_features(gdf, box, to_ll, by=None, simplify=1.0):
     """Clip a layer to the box, simplify slightly, reproject to lat/lon -> compact GeoJSON features."""
     import shapely
@@ -347,7 +138,6 @@ def build_minimap_explorer(data_dir: Path, out_dir: Path, locs: dict, cfg: dict,
     """Interactive mini maps: location picker, layer checkboxes, and an overlay of postcode feature dots
     or an LSOA choropleth."""
     from pyproj import Transformer
-    from . import tile_js
     from .interactive import _area_table, _num, var_label
     lsoa = _lsoa_source(data_dir, cfg.get("lsoa") or {}, area_variables) if area_variables else None
     to_ll = Transformer.from_crs(27700, 4326, always_xy=True)
@@ -409,13 +199,11 @@ def build_minimap_explorer(data_dir: Path, out_dir: Path, locs: dict, cfg: dict,
             "layers": [{"name": s["name"], "kind": s["kind"], "style": s.get("style"), "styles": s.get("styles"),
                         "on": s.get("show", True)} for s in layers],
             "vars": [var_label(v) for v in variables.values()], "areaVars": lsoa["labels"] if lsoa else []}
-    page = (EXPLORER.replace("__CSS__", PAGE_CSS).replace("__KM__", f"{size / 1000:g} km")
-            .replace("__TILES__", tile_js("streets")).replace("__VER__", str(int(time.time())))
-            .replace("__META__", json.dumps(meta, separators=(",", ":"))))
-    out = out_dir / "minimap_explorer.html"
-    out.write_text(page, encoding="utf-8")
+    # the page itself is the map explorer (explorer.py), which reads this
+    (data_dir_out / "meta.json").write_text(json.dumps(meta, separators=(",", ":")), encoding="utf-8")
+    out = data_dir_out / "meta.json"
     total = sum(p.stat().st_size for p in data_dir_out.glob("*.js")) / 1e6
-    log.info("wrote   %s (+ %d location files, %.1f MB)", out.name, len(locs), total)
+    log.info("wrote   minimap_data (%d location files, %.1f MB)", len(locs), total)
     return out
 
 
@@ -440,7 +228,7 @@ def build_minimaps(data_dir: Path, out_dir: Path, locs: dict, cfg: dict, variabl
             fig, ax = plt.subplots(figsize=(4.2, 4.2))
             ax.set_facecolor(cfg.get("sea_colour", "#cfe3f3"))
             for spec, gdf in loaded:
-                if gdf is None:
+                if gdf is None or spec.get("static") is False:   # static: false = explorer only
                     continue
                 sub = gdf.cx[x0:x1, y0:y1]
                 if sub.empty:
@@ -473,7 +261,7 @@ def build_minimaps(data_dir: Path, out_dir: Path, locs: dict, cfg: dict, variabl
                          f'</span></figcaption></figure>')
 
     fig = plt.figure(figsize=(9, 1.1))
-    fig.legend(handles=_legend_handles(layers), loc="center", ncol=6, frameon=False, fontsize=8)
+    fig.legend(handles=_legend_handles([l for l in layers if l.get("static") is not False]), loc="center", ncol=6, frameon=False, fontsize=8)
     legend_uri = png_data_uri(fig, dpi)
     plt.close(fig)
 
@@ -489,7 +277,7 @@ figcaption span{{color:#777;font-size:12px}}
 </style></head><body>
 <header><h1>Mini maps: {km} squares around key locations</h1>
 <p>{len(cards)} locations. Open data: OS Open Roads, Open Rivers, Open Greenspace and Built Up Areas;
-Historic England; Natural England; NaPTAN; ONS boundaries. <a href="minimap_explorer.html">Interactive version</a> |
+Historic England; Natural England; NaPTAN; ONS boundaries. <a href="explorer.html">Map explorer</a> (interactive: layers, postcode features, road networks) |
 <a href="index.html">All visualisations</a></p></header>
 <main><div class="legend"><img src="{legend_uri}" alt="legend" style="max-width:100%"></div>
 <div class="grid">{''.join(cards)}</div></main></body></html>"""

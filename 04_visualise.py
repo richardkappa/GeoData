@@ -9,6 +9,11 @@
   drawn as equal hexagons or squares, MSOA hexes included (``viz/cartograms.html``)
 * choropleths: the same averaged to real boundaries (constituencies, local
   authorities, MSOAs) and OS national grid squares (``viz/choropleths.html``)
+* heat maps: where things are concentrated, rates per head and access values (``viz/heatmaps.html``)
+* networks: road and area networks around each key location (data for the map explorer)
+* explorer: the map explorer - map layers, postcode features and road network views for each
+  key location on one page (``viz/explorer.html``)
+* variables: every column with its description (``viz/variables.html``)
 
 Configured in ``config/visualise.yaml``. Open ``<data_dir>/viz/index.html``.
 
@@ -30,7 +35,12 @@ import yaml
 from geodata.config import REPO_ROOT
 from geodata.viz import PAGE_CSS, label, resolve_locations
 
-STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "networks", "variables")
+STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "networks", "explorer", "variables")
+
+
+def steps_explorer(steps) -> bool:
+    """The explorer page is rewritten whenever its data (mini maps, networks) is."""
+    return bool({"explorer", "minimaps", "networks"} & set(steps))
 
 
 REPO_LINK = re.compile(r'(<a href="index\.html">All visualisations</a>)(?: \| <a class="repo"[^>]*>[^<]*</a>)?')
@@ -112,8 +122,10 @@ def main(argv=None) -> int:
         build_heatmaps(data_dir, out_dir, cfg["heatmaps"])
     if "networks" in steps and cfg.get("networks"):
         from geodata.viz.networks import build_networks
-        build_networks(data_dir, out_dir, locs, cfg["networks"],
-                       layers=(cfg.get("minimaps") or {}).get("layers"))   # background layers, as in the explorer
+        build_networks(data_dir, out_dir, locs, cfg["networks"])
+    if steps_explorer(steps):   # one page for the mini map and network data
+        from geodata.viz.explorer import build_explorer
+        build_explorer(out_dir, float((cfg.get("minimaps") or {}).get("size_m", 5000)))
     if "variables" in steps:
         from geodata.viz.variables import build_variables
         build_variables(data_dir, out_dir)
@@ -121,10 +133,14 @@ def main(argv=None) -> int:
     # index of whatever pages exist
     links = []
     if (out_dir / "minimaps.html").exists():
-        links.append('<li><a href="minimaps.html">Mini maps</a>: 5 km squares around every key location</li>')
-    if (out_dir / "minimap_explorer.html").exists():
-        links.append('<li><a href="minimap_explorer.html">Mini map explorer</a>: pick a location, the map layers '
-                     'and a postcode feature to plot over it</li>')
+        links.append('<li><a href="minimaps.html">Mini maps</a>: 5 km squares around every key location, as '
+                     'static maps (including the three national hotspots for collisions within a 30-minute drive)</li>')
+    if (out_dir / "explorer.html").exists():
+        links.append('<li><a href="explorer.html">Map explorer</a>: the mini map squares, interactive. Tick map layers '
+                     '(roads, water, greenspace, heritage, stations, takeaways, GP surgeries), plot a postcode feature as '
+                     'dots, a smooth surface or LSOA areas, and add a road network view: through-routes, walking and '
+                     'driving times, routes to the nearest station, collision hotspots, collisions within a 30-minute '
+                     'drive, the junction graph and the LSOA neighbour network</li>')
     if (out_dir / "cartograms.html").exists():
         links.append('<li><a href="cartograms.html">Cartograms</a>: constituencies and local authorities as equal '
                      'hexagons, plus the Ordnance Survey equal-area square cartogram</li>')
@@ -134,9 +150,6 @@ def main(argv=None) -> int:
     if (out_dir / "small_multiples.html").exists():
         links.append('<li><a href="small_multiples.html">Small multiples</a>: nine variables side by side on the same '
                      'cartogram</li>')
-    if (out_dir / "network_explorer.html").exists():
-        links.append('<li><a href="network_explorer.html">Network explorer</a>: road centrality, walking and driving '
-                     'time, route to the nearest station, junction graph, LSOA neighbour network with bridges</li>')
     if (out_dir / "heatmaps.html").exists():
         links.append('<li><a href="heatmaps.html">Heat maps</a>: where things are concentrated (crime, collisions, '
                      'listed buildings, food outlets, house sales...)</li>')
@@ -165,6 +178,8 @@ def main(argv=None) -> int:
         f'<p>UK open data by postcode{repo}</p></header><main>{featured}<ul>{"".join(links)}</ul></main></body></html>',
         encoding="utf-8")
     _add_repo_link(out_dir, g.get("repo_url"))
+    from geodata.viz.mobile import add_mobile
+    log.info("phone layout on %d pages", add_mobile(out_dir))
     log.info("visualisations written to %s in %.0fs", out_dir, time.perf_counter() - t0)
     return 0
 

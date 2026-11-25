@@ -23,6 +23,7 @@ class Settings:
     user_agent: str = "GeoData-extract/0.1 (+open data research)"
     keep_raw: bool = True          # keep downloaded zips/csvs after processing
     sources: dict[str, dict[str, Any]] = field(default_factory=dict)
+    geocode: dict[str, Any] = field(default_factory=dict)   # coordinates for point tables (geodata/geocode.py)
 
     @property
     def raw_dir(self) -> Path:
@@ -65,6 +66,7 @@ def load_settings(path: str | os.PathLike | None = None, **overrides: Any) -> Se
         user_agent=g.get("user_agent", Settings.user_agent),
         keep_raw=bool(g.get("keep_raw", True)),
         sources=cfg.get("sources", {}) or {},
+        geocode=cfg.get("geocode", {"enabled": True}) or {},
     )
     for k, v in overrides.items():
         if v is not None:

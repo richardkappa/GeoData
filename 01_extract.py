@@ -36,6 +36,8 @@ def main(argv=None) -> int:
     ap.add_argument("--force", action="store_true", help="re-download cached files")
     ap.add_argument("--reprocess", action="store_true", help="rebuild outputs from cached downloads")
     ap.add_argument("--list", action="store_true", help="list sources and exit")
+    ap.add_argument("--geocode-only", action="store_true",
+                    help="only add / fill easting-northing in the tables already extracted (no downloads)")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
 
@@ -68,6 +70,22 @@ def main(argv=None) -> int:
     todo = [n for n in todo if n not in a.skip]
     log.info("data_dir=%s  sources=%s", settings.data_dir, ", ".join(todo))
 
+    from geodata.geocode import geocode_files
+    gcfg = settings.geocode or {}
+    nspl = settings.out_dir / "ons_nspl" / "nspl.parquet"
+
+    def geocode(name, paths):
+        if gcfg.get("enabled", True) and name not in (gcfg.get("skip") or []):
+            geocode_files([Path(p) for p in paths], nspl)
+
+    if a.geocode_only:
+        for name in todo:
+            d = settings.out_dir / name
+            if d.is_dir():
+                geocode(name, sorted(d.rglob("*.parquet")))
+        log.info("geocoding done")
+        return 0
+
     manifest_path = settings.out_dir / "_manifest.json"
     manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
     failed = []
@@ -77,6 +95,7 @@ def main(argv=None) -> int:
         log.info("=== %s ===", name)
         try:
             outs = sources[name].func(settings, params) or []
+            geocode(name, outs)   # easting/northing for point tables (own, lat/long, or postcode centre)
             dt = time.perf_counter() - t0
             log.info("=== %s done in %.0fs: %d file(s)", name, dt, len(outs))
             manifest[name] = {

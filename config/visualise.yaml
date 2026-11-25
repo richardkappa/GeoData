@@ -73,13 +73,15 @@ featured:
   - {title: Small multiples, href: small_multiples.html, text: Nine variables side by side on the same cartogram}
   - {title: Serious road collisions by neighbourhood, href: 'choropleths.html#geo=msoa&var=collisions_ksi_per_1000_res_yr_nbhd_2step&bg=0',
      text: 'Fatal or serious collisions per 1,000 residents a year, pooled over LSOAs within 2 boundaries'}
+  - {title: Collisions within a 30-minute drive, href: 'heatmaps.html#ds=value_collisions_within_30min_drive',
+     text: 'Road collisions on every road you could reach by car in 30 minutes, for every postcode'}
   - {title: Stations within a 15-minute walk, href: 'heatmaps.html#ds=value_rail_stations_within_15min_walk',
      text: How many railway stations can be reached on foot, averaged over squares}
-  - {title: Through-routes of central London, href: 'network_explorer.html#loc=St_Pauls&view=btw',
+  - {title: Through-routes of central London, href: 'explorer.html#loc=St_Pauls&view=btw&layers=none&bg=light',
      text: Road centrality - which roads carry the shortest routes across the square}
-  - {title: Bridges across the Thames, href: 'network_explorer.html#loc=St_Pauls&view=lsoa',
+  - {title: Bridges across the Thames, href: 'explorer.html#loc=St_Pauls&view=lsoa&layers=none&bg=light',
      text: The LSOA neighbour network with road bridges joining areas across the river}
-  - {title: 15-minute walk from Bath Abbey, href: 'network_explorer.html#loc=Bath&view=walk',
+  - {title: 15-minute walk from Bath Abbey, href: 'explorer.html#loc=Bath&view=walk&layers=none&bg=light',
      text: Walking time over the street network}
 
 # --- key locations ----------------------------------------------------------
@@ -109,11 +111,16 @@ locations:
   St_Ives:         {postcode: TR26 1LP, note: St Ives harbour, Cornwall}
   Keswick:         {postcode: CA12 5DG, note: 'Keswick, Lake District'}
   Llanberis:       {postcode: LL55 4UR, note: 'Llanberis, foot of Snowdon'}
+  # the three biggest hotspots for road collisions within a 30-minute drive (features
+  # collisions_within_30min_drive, at least 10 km apart; the junction with the highest value)
+  Hotspot_1_Hyde_Park_Corner: {xy: [528346, 179853], note: 'A4 at Hyde Park Corner: most collisions within a 30-minute drive (127,802)'}
+  Hotspot_2_Brent_Cross:      {xy: [523998, 188447], note: 'A406 North Circular at Brent Cross: 2nd hotspot (123,708 within 30 min)'}
+  Hotspot_3_Brentford:        {xy: [519171, 178455], note: 'A4 Great West Road, Brentford: 3rd hotspot (124,635 within 30 min)'}
 
 # --- static mini maps -------------------------------------------------------
 # Every location as a size_m x size_m square. Layers are drawn in order.
 # kind: polygon | line | point. `by` + `styles` style features by a column.
-# show: false = unticked by default in the interactive explorer (minimap_explorer.html).
+# show: false = unticked by default in the map explorer (explorer.html).
 minimaps:
   size_m: 5000
   columns: 4                 # maps per row in the gallery
@@ -155,6 +162,11 @@ minimaps:
     - {name: Railway, file: os_open/openzoomstack__rail.parquet, kind: line, style: {color: '#333333', linewidth: 1.4, zorder: 6}}
     - {name: Listed building, file: historic_england/listed_buildings.parquet, kind: point, style: {color: '#a3203a', s: 3, zorder: 7}}
     - {name: Railway station, file: naptan/naptan_stops.parquet, kind: point, filter: {stoptype: RLY}, style: {color: '#111111', marker: s, s: 26, zorder: 8}}
+    # explorer only (static: false), unticked to start (busy in towns)
+    - {name: Takeaway, show: false, static: false, file: fsa/food_hygiene.parquet, kind: point, filter: {businesstype: Takeaway/sandwich shop},
+       style: {color: '#e67e22', s: 5, zorder: 7}}
+    - {name: GP surgery, show: false, static: false, file: nhs_ods/gp_practices.parquet, kind: point, filter: {status_code: ACTIVE},
+       style: {color: '#0b7a75', marker: s, s: 20, zorder: 8}}
 
 # --- hex cartograms ---------------------------------------------------------
 # Postcode values averaged to each area (weighted by addresses; `agg: sum` to
@@ -224,6 +236,10 @@ cartograms:
     collisions_per_1000_res_yr_lsoa:              {label: 'Road collisions per 1,000 residents per year (own LSOA)', countries: [E, W]}
     collisions_per_1000_res_yr_nbhd_2step:        {label: 'Road collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
     collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
+    collisions_within_30min_drive:                {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S]}
+    takeaways_within_30min_drive:                 {label: Takeaways within a 30-minute drive, countries: [E, W, S]}
+    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W]}
+    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W]}
     casualties_per_1000_res_yr_nbhd_5step:        {label: 'Road casualties per 1,000 residents per year (LSOAs within 5 boundaries)', countries: [E, W]}
     walk_secondary_schools_min:                   {label: Walking time to nearest secondary school (minutes; England), countries: [E]}
     drive_hospitals_ae_min:                       {label: Drive time to nearest A&E (minutes; England), countries: [E]}
@@ -286,8 +302,8 @@ choropleths:
       elevation_m:                                 {label: elevation, short: elevation}
       gas_median_cons_kwh:                         {label: gas use, short: gas use}
 
-# --- network explorer -------------------------------------------------------
-# Road and area networks around every location (network_explorer.html)
+# --- road networks (network views in the map explorer) -----------------------
+# Road and area networks around every location (network views in the map explorer, explorer.html)
 networks:
   size_m: 5000
   route_pad_m: 1500            # roads this far beyond the square are used for routing
@@ -358,6 +374,8 @@ heatmaps:
       rail_stations_within_15min_walk: {label: Railway stations within a 15-minute walk, countries: [E, W, S],
                                low_is_good: false, breaks: [0.05, 0.25, 0.5, 0.75, 1, 1.5, 2],
                                help: 'how many railway stations can be reached on foot within 15 minutes of home (street network, 4.8 km/h); more is better (green). Most of the country has none, so most squares are red.'}
+      collisions_within_30min_drive: {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S],
+                               help: 'how many road collisions (2021-25, all injury collisions) happened on roads you could reach within 30 minutes by car from home, at typical free-flow speeds; higher (red) is busier, more crash-prone road network nearby.'}
 
 # --- interactive feature explorer -------------------------------------------
 # One HTML page per area: every postcode in the square as a dot on a street
@@ -379,6 +397,10 @@ interactive:
     rail_stations_within_15min_walk:              {label: Railway stations within a 15-minute walk, countries: [E, W, S]}
     walk_takeaways_min:                           Walking time to nearest takeaway (minutes)
     collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
+    collisions_within_30min_drive:                {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S]}
+    takeaways_within_30min_drive:                 {label: Takeaways within a 30-minute drive, countries: [E, W, S]}
+    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W]}
+    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W]}
     dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
     dist_coast_m:                                 Distance to the coast (m)
     climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)

@@ -21,6 +21,15 @@ global:
   reprocess: false        # true = rebuild parquet outputs from cached downloads
   keep_raw: true          # false = delete large raw downloads after processing
 
+# Coordinates for point tables (geodata/geocode.py), run on each table as it is extracted:
+# every row gets easting/northing from the source's own, else its latitude/longitude, else the centre
+# of its postcode (NSPL), with xy_source saying which. Postcode-only point tables (GP practices,
+# pharmacies, house sales...) get the columns added; one-row-per-postcode tables are left alone.
+# `python 01_extract.py --geocode-only` re-runs it on everything already extracted.
+geocode:
+  enabled: true
+  skip: [ons_nspl, ons_nsul]    # the postcode directory itself, and addresses (UPRNs), which are not points
+
 sources:
 
   # --- ONS postcode & address spine ------------------------------------------
@@ -57,7 +66,7 @@ sources:
       # name: exact service | {service_regex: newest match} | {url: full layer url}
       lsoa21: LSOA_2021_EW_BSC_V4_RUC
       msoa21: MSOA_2021_EW_BSC_V3_RUC
-      lsoa21_detail: {service: LSOA_2021_EW_BFE_V10_RUC, simplify_m: 10}   # full-resolution LSOAs simplified to 10 m (mini map explorer)
+      lsoa21_detail: {service: LSOA_2021_EW_BFE_V10_RUC, simplify_m: 10}   # full-resolution LSOAs simplified to 10 m (map explorer)
       oa21:   {service: OA_2021_EW_BGC_V2_RUC, enabled: false}     # 189k polygons
       lad:    {service_regex: '^Local_Authority_Districts_.*_Boundaries_UK_BGC$'}
       lad19:  Local_Authority_Districts_December_2019_GCB_UK_2022    # 2019 districts, for the OS equal-area cartogram

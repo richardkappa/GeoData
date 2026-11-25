@@ -261,6 +261,81 @@ def run_network(F: Features, cfg, data_dir, full, bbox_pad):
                                                 limit=drive.get("max_min", 180) * 60)
             F.add(f"drive_{name}_min", np.round(s / 60, 1), "network",
                   f"free-flow drive time (min) to nearest {name}")
+    return g
+
+
+def run_reach(F: Features, cfg, data_dir, full, g, bbox):
+    """Points reachable over the road network within N minutes' drive or walk of every postcode - a count,
+    or the sum of a weight column - for each measure under `network.reach.measures` (see
+    features/reach.py). Measures with the same mode and time limit share one set of searches. The
+    per-500 m-square values go to features/reach_cells_<mode>_<N>min.parquet (used for the maps)."""
+    nw = cfg.get("network") or {}
+    rc = nw.get("reach") or {}
+    measures = rc.get("measures") or {}
+    if not measures or g is None:
+        return
+    from collections import defaultdict
+    from scipy.spatial import cKDTree
+    from . import reach
+    walk = nw.get("walk") or {}
+    walk_kmh = float(walk.get("speed_kmh", 4.8))
+    speeds = {**network.DEFAULT_SPEEDS, **((nw.get("drive") or {}).get("speeds_kmh") or {})}
+    sp = F.spine
+    x, y = np.asarray(sp.x, dtype="f8"), np.asarray(sp.y, dtype="f8")
+    ok = np.isfinite(x) & np.isfinite(y)
+    groups = defaultdict(list)
+    for name, m in measures.items():
+        if m.get("mode") not in ("drive", "walk"):
+            log.warning("reach %s skipped: mode must be drive or walk", name)
+            continue
+        groups[(m["mode"], int(m.get("minutes", 30)))].append((name, m))
+    out_dir = data_dir / "features"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for (mode, minutes), ms in groups.items():
+        if mode == "drive":
+            secs = g.length / (np.array([speeds.get(k, 25) for k in g.cls], dtype="f8") / 3.6)
+            mask, top = None, max(speeds.values())
+            how = "drive at typical free-flow speeds by road class"
+        else:
+            secs = g.length / (walk_kmh / 3.6)
+            mask = ~np.isin(g.cls, walk.get("exclude_classes", ["Motorway"]))
+            top = walk_kmh
+            how = f"walk at {walk_kmh:g} km/h (motorways excluded)"
+        u, v, s = reach.simple_edges(g.u, g.v, secs, mask)
+        nodes = np.unique(np.r_[u, v])
+        tree = cKDTree(g.node_xy[nodes])
+        cols, names, notes = [], [], []
+        for name, m in ms:
+            try:
+                P = load_points(data_dir, cfg["points"][m["points"]], full, bbox=bbox)
+            except (FileNotFoundError, KeyError) as e:
+                log.warning("reach %s skipped: %s", name, e)
+                continue
+            wcol = m.get("weight")
+            w = (pc.cast(P.table[wcol], pa.float64()).fill_null(0).to_numpy() if wcol else np.ones(len(P.x)))
+            nw_, placed = reach.node_weights(tree, nodes, P.x, P.y, w, g.n, float(rc.get("snap_m", 200)))
+            log.info("reach %s: %s of %s points placed on the road network", name, f"{placed:,}", f"{len(P.x):,}")
+            cols.append(nw_); names.append(name)
+            what = m.get("what") or (f"total {wcol} of {m['points']}" if wcol else m["points"].replace("_", " "))
+            notes.append(m.get("note") or f"{what} on roads reachable within {minutes} minutes' {how}; worked out "
+                                          f"from the {float(rc.get('cell_m', 500)):g} m grid square containing the postcode")
+        if not cols:
+            continue
+        with io.Timer(f"reach: {mode} {minutes} min ({', '.join(names)})"):
+            vals, cell_vals, cells = reach.reach_sums(
+                g.node_xy, u, v, s, np.column_stack(cols), x[ok], y[ok], minutes=minutes, top_kmh=top, nodes=nodes,
+                cell_m=float(rc.get("cell_m", 500)), tile_m=float(rc.get("tile_m", 20000)),
+                workers=rc.get("workers"), label=f"reach {mode} {minutes} min")
+        for k, (name, note) in enumerate(zip(names, notes)):
+            col = np.full(len(x), np.nan)
+            col[ok] = vals[:, k]
+            ctry = measures[name].get("countries")    # blank where the points' source has no coverage
+            if ctry and "ctry26cd" in sp.table.column_names:
+                first = pc.utf8_slice_codeunits(pc.cast(sp.table["ctry26cd"], pa.string()), 0, 1)
+                col[~pc.fill_null(pc.is_in(first, pa.array(ctry)), False).to_numpy(zero_copy_only=False)] = np.nan
+            F.add(name, col, "network", note)
+            cells[name] = cell_vals[:, k]
+        pq.write_table(pa.table(cells), out_dir / f"reach_cells_{mode}_{minutes}min.parquet")
 
 
 def run_water(F: Features, cfg, data_dir, full, bbox_pad, tif):
@@ -666,7 +741,10 @@ def build(data_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
     with io.Timer("assign"):
         run_assign(F, cfg, data_dir, full)
     with io.Timer("network"):
-        run_network(F, cfg, data_dir, full, bbox_net)
+        g_net = run_network(F, cfg, data_dir, full, bbox_net)
+    with io.Timer("reach"):
+        run_reach(F, cfg, data_dir, full, g_net, bbox_net)
+    del g_net
     with io.Timer("house prices"):
         run_house_prices(F, cfg, data_dir, full, grid, bbox_pad, counts)
     with io.Timer("crime"):

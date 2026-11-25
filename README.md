@@ -92,11 +92,21 @@ Boundary and designation layers can be given in three ways:
   DuckDB.
 * **`postcode_ns`** is the postcode in upper case with all whitespace removed
   (`"sw1a 1aa"` → `SW1A1AA`). Every postcode-level table has this column.
-* **Point data** carries `easting`/`northing` (EPSG:27700). If the source gave
-  only latitude/longitude, these are converted with PROJ. Northern Ireland
-  postcodes are on the Irish Grid in the NSPL and are converted to the British
-  grid as well. Points are kept as plain x/y columns rather than geometry
-  objects, so section 2 can use fast numpy/KD-tree joins.
+* **Point data** carries `easting`/`northing` (EPSG:27700), checked as each
+  table is extracted (`geodata/geocode.py`, settings under `geocode:` in
+  `config/extract.yaml`). Every row gets the source's own coordinates if they
+  are valid, else its latitude/longitude converted with PROJ, else the centre of
+  its postcode from the NSPL. Tables that only have a postcode (GP practices,
+  pharmacies, house sales...) get the columns added. When anything is filled,
+  `xy_source` records where each row's coordinates came from (`source`,
+  `latlong`, `postcode`, or empty if there was nothing to go on, e.g. food
+  businesses run from private homes, whose addresses the FSA withholds).
+  Tables with one row per postcode are postcode attributes, not points, and are
+  left alone. `python 01_extract.py --geocode-only` re-runs this on what has
+  already been extracted. Northern Ireland postcodes are on the Irish Grid in
+  the NSPL and are converted to the British grid as well. Points are kept as
+  plain x/y columns rather than geometry objects, so section 2 can use fast
+  numpy/KD-tree joins.
 * **Area codes** use NSPL column names (`oa21cd`, `lsoa21cd`, `msoa21cd`...), so
   joining an area table to postcodes is a single merge on the NSPL.
 * ONS "not applicable" pseudo codes (`E99999999`, `S99999999`…) become null.
@@ -184,6 +194,34 @@ table's total.
 
 ---
 
+## Section 3: postcode features (`03_features.py`)
+
+Distances, densities, travel times, climate, trends and neighbourhood averages
+for every live postcode, configured in `config/features.yaml`.
+
+**What can be reached within a time limit.** `network.reach.measures` counts
+points (any entry under `points:`) on the roads reachable within N minutes'
+drive or walk of every postcode, for the whole country, or sums a weight
+column instead of counting:
+
+```yaml
+network:
+  reach:
+    measures:
+      collisions_within_30min_drive: {mode: drive, minutes: 30, points: collisions}
+      bus_stops_within_10min_walk:   {mode: walk, minutes: 10, points: bus_stops}
+      casualties_within_30min_drive: {mode: drive, minutes: 30, points: collisions, weight: number_of_casualties}
+```
+
+Drive times use typical free-flow speeds by road class; walking uses 4.8 km/h
+and leaves out motorways. Each 500 m grid square with postcodes is searched from
+the road junction nearest its postcodes, and its postcodes share the result.
+The searches are exact but only use the roads that could be reached in time, so
+the country is split into tiles that run in parallel. Measures with the same
+mode and time limit share one set of searches, so extra ones are cheap (30
+minutes' drive for all 268,000 squares takes about 11 minutes on 10 cores). The
+per-square values are also saved as `features/reach_cells_<mode>_<N>min.parquet`.
+
 ## Section 4: visualisations (`04_visualise.py`)
 
 Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
@@ -194,11 +232,19 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   showing roads by class, railways, rivers and lakes, woodland, greenspace,
   built-up areas, conservation areas, scheduled monuments, listed buildings and
   stations. One PNG per map is also saved in `viz/minimaps/`.
-* **Mini map explorer** (`minimap_explorer.html`): the same squares on a street
-  map. Pick the location, tick the map layers, and overlay either postcode dots
-  coloured by a feature or an LSOA choropleth (ONS LSOA 2021 boundaries) with
-  the same variables as the choropleths and cartograms. A view can be opened
-  directly, e.g. `minimap_explorer.html#loc=Bath&mode=lsoa&var=2`.
+* **Map explorer** (`explorer.html`): the same squares, interactive, plus the
+  three national hotspots for road collisions within a 30-minute drive. The
+  controls come in three groups: the **location**; a **road network** view
+  (road centrality, walking and driving time from the centre and to the
+  nearest railway station, the shortest walk to a station, collision hotspots,
+  collisions within a 30-minute drive, the major road junction graph, and the
+  LSOA neighbour network with road "bridges" across rivers and the rings within
+  1, 2 and 3 boundaries used for spatial smoothing); and a **postcode overlay**
+  (postcode dots, a smooth surface, or an LSOA choropleth of a feature, with
+  its own opacity). Map layers (including takeaways and GP surgeries) and the
+  background map are ticked in the side panel. A view can be opened directly,
+  e.g. `explorer.html#loc=Bath&view=walk&mode=lsoa&var=2&layers=none&bg=light`.
+  The old `minimap_explorer.html` address forwards here.
 * **Interactive maps** (`interactive_<area>.html`): every live postcode in an
   area as a dot on a street map. A drop-down picks which feature colours the
   dots (house prices and trends, deprivation, crime, broadband, energy use,
@@ -216,13 +262,6 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   simplified for the web) and Ordnance Survey national grid squares of 5, 10, 25
   and 50 km, labelled with their grid reference. The background map can be
   switched off.
-
-* **Network explorer** (`network_explorer.html`): for every key location, road
-  centrality (which roads carry the shortest routes across the square), walking
-  and driving time from the centre, the shortest walk to the nearest railway
-  station, the major road junction graph (A roads and motorways with degree-2
-  nodes removed), and the LSOA neighbour network with road "bridges" across
-  rivers and the rings within 1, 2 and 3 boundaries used for spatial smoothing.
 * **Heat maps**, **small multiples** and a searchable **variables** page; the
   index has links straight to featured views.
 

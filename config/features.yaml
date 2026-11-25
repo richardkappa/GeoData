@@ -29,6 +29,7 @@ points:
   stop_search:       {file: police/stop_and_search.parquet}
   collisions:        {file: road_safety/collision.parquet}
   collisions_ksi:    {file: road_safety/collision.parquet, filter: {collision_severity: [1, 2]}}   # fatal or serious
+  collisions_fatal:  {file: road_safety/collision.parquet, filter: {collision_severity: 1}}
   schools:           {file: schools/schools.parquet}
   primary_schools:   {file: schools/schools.parquet, filter: {phaseofeducation_name: Primary}}
   secondary_schools: {file: schools/schools.parquet, filter: {phaseofeducation_name: [Secondary, All-through]}}
@@ -159,6 +160,30 @@ network:
     max_min: 180
     targets: [motorway_junctions, hospitals_ae, rail_stations]
     speeds_kmh: {}            # override e.g. {A Road: 60}
+
+  # what can be reached within N minutes' drive or walk of every postcode, nationally: the count of
+  # `points` (an entry under points:) on reachable roads, or the sum of a `weight` column. Add a line
+  # per measure; measures with the same mode and minutes share one set of searches, so extra ones are
+  # cheap. Worked out per 500 m grid square with postcodes (cell_m); tiles run in parallel (workers).
+  # Optional per measure: weight (column to sum), what (wording for the description), note,
+  # countries (blank elsewhere: e.g. [E, W, N] for police.uk crime, which does not cover Scotland).
+  reach:
+    cell_m: 500
+    tile_m: 20000
+    snap_m: 200               # points further than this from a road junction are left out
+    workers: 10
+    measures:
+      collisions_within_30min_drive:       {mode: drive, minutes: 30, points: collisions,
+                                            what: 'road collisions (DfT STATS19, the years extracted)'}
+      fatal_collisions_within_30min_drive: {mode: drive, minutes: 30, points: collisions_fatal,
+                                            what: 'fatal road collisions (DfT STATS19, the years extracted)'}
+      takeaways_within_30min_drive:        {mode: drive, minutes: 30, points: takeaways,
+                                            what: 'takeaways and sandwich shops (FSA food hygiene ratings)'}
+      burglaries_within_30min_drive:       {mode: drive, minutes: 30, points: burglary, countries: [E, W, N],
+                                            what: 'burglaries (police.uk street-level crime, the months extracted; England, Wales and Northern Ireland)'}
+      vehicle_crimes_within_30min_drive:   {mode: drive, minutes: 30, points: vehicle_crime, countries: [E, W, N],
+                                            what: 'vehicle crimes - theft of or from a vehicle (police.uk, the months extracted; England, Wales and Northern Ireland)'}
+      bus_stops_within_10min_walk:         {mode: walk, minutes: 10, points: bus_stops}
 
 # --- 12. house price trend --------------------------------------------------
 house_prices:
