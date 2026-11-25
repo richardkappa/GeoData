@@ -264,6 +264,25 @@ def run_network(F: Features, cfg, data_dir, full, bbox_pad):
     return g
 
 
+def people_estimate(full: Spine, kind: str = "residents") -> np.ndarray:
+    """Residents (or households) per postcode on the full spine: the census output-area total shared by
+    addresses (postcode_population); where there is no census (Scotland, Northern Ireland) addresses times
+    the England and Wales people-per-address ratio, or a typical postcode where there is no address count."""
+    pop = postcode_population(full)
+    col = {"residents": "ts001_total", "households": "ts017_total_all_household_spaces"}[kind]
+    t = full.table
+    n = t.num_rows
+    live = t["live"].to_numpy(zero_copy_only=False) if "live" in t.column_names else np.ones(n, bool)
+    v = pop.get(kind, np.zeros(n)).astype("f8")
+    addr = pop["addresses"]
+    known = (np.isfinite(pc.cast(t[col], pa.float64()).to_numpy(zero_copy_only=False)) if col in t.column_names
+             else np.zeros(n, bool)) & live
+    ratio = v[known].sum() / max(addr[known].sum(), 1)
+    per_pc = v[known].mean() if known.any() else 0.0
+    est = np.where(addr > 0, addr * ratio, per_pc)
+    return np.where(known, v, np.where(live, est, 0.0))
+
+
 def run_reach(F: Features, cfg, data_dir, full, g, bbox):
     """Points reachable over the road network within N minutes' drive or walk of every postcode - a count,
     or the sum of a weight column - for each measure under `network.reach.measures` (see
@@ -306,17 +325,28 @@ def run_reach(F: Features, cfg, data_dir, full, g, bbox):
         tree = cKDTree(g.node_xy[nodes])
         cols, names, notes = [], [], []
         for name, m in ms:
-            try:
-                P = load_points(data_dir, cfg["points"][m["points"]], full, bbox=bbox)
-            except (FileNotFoundError, KeyError) as e:
-                log.warning("reach %s skipped: %s", name, e)
-                continue
-            wcol = m.get("weight")
-            w = (pc.cast(P.table[wcol], pa.float64()).fill_null(0).to_numpy() if wcol else np.ones(len(P.x)))
-            nw_, placed = reach.node_weights(tree, nodes, P.x, P.y, w, g.n, float(rc.get("snap_m", 200)))
+            if m.get("population"):      # people: every postcode, weighted by its residents / households
+                px, py = np.asarray(full.x, dtype="f8"), np.asarray(full.y, dtype="f8")
+                w = people_estimate(full, m["population"])
+                good = np.isfinite(px) & np.isfinite(py) & (w > 0)
+                P = type("P", (), {"x": px[good], "y": py[good]})
+                w = w[good]
+                wcol = None
+                snap = float(m.get("snap_m", 2000))   # rural postcodes can be well away from a junction
+            else:
+                try:
+                    P = load_points(data_dir, cfg["points"][m["points"]], full, bbox=bbox)
+                except (FileNotFoundError, KeyError) as e:
+                    log.warning("reach %s skipped: %s", name, e)
+                    continue
+                wcol = m.get("weight")
+                w = (pc.cast(P.table[wcol], pa.float64()).fill_null(0).to_numpy() if wcol else np.ones(len(P.x)))
+                snap = float(m.get("snap_m", rc.get("snap_m", 200)))
+            nw_, placed = reach.node_weights(tree, nodes, P.x, P.y, w, g.n, snap)
             log.info("reach %s: %s of %s points placed on the road network", name, f"{placed:,}", f"{len(P.x):,}")
             cols.append(nw_); names.append(name)
-            what = m.get("what") or (f"total {wcol} of {m['points']}" if wcol else m["points"].replace("_", " "))
+            what = m.get("what") or (m.get("population") if m.get("population") else
+                                     f"total {wcol} of {m['points']}" if wcol else m["points"].replace("_", " "))
             notes.append(m.get("note") or f"{what} on roads reachable within {minutes} minutes' {how}; worked out "
                                           f"from the {float(rc.get('cell_m', 500)):g} m grid square containing the postcode")
         if not cols:
@@ -336,6 +366,19 @@ def run_reach(F: Features, cfg, data_dir, full, g, bbox):
             F.add(name, col, "network", note)
             cells[name] = cell_vals[:, k]
         pq.write_table(pa.table(cells), out_dir / f"reach_cells_{mode}_{minutes}min.parquet")
+    # per head: a reach measure divided by the people within the same reach (`per_head:` in the config)
+    for name, ph in (rc.get("per_head") or {}).items():
+        of, per = ph.get("of"), ph.get("per")
+        if of not in F.cols or per not in F.cols:
+            log.warning("reach per head %s skipped: needs %s and %s", name, of, per)
+            continue
+        num = np.asarray(pa.array(F.cols[of]).to_numpy(zero_copy_only=False), dtype="f8")
+        den = np.asarray(pa.array(F.cols[per]).to_numpy(zero_copy_only=False), dtype="f8")
+        scale = float(ph.get("scale", 1000))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            val = np.where(den >= float(ph.get("min_population", 1000)), num / den * scale, np.nan)
+        F.add(name, np.round(val, 3), "network",
+              ph.get("note") or f"{of} per {scale:,.0f} people within the same reach ({per})")
 
 
 def run_water(F: Features, cfg, data_dir, full, bbox_pad, tif):

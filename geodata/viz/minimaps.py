@@ -113,7 +113,7 @@ def _lsoa_source(data_dir: Path, lcfg: dict, area_variables: dict):
     import geopandas as gpd
     import pyarrow as pa
     from .cartograms import _aggregate, _postcode_table
-    from .interactive import _num
+    from .postcode_data import _num
     f = next((data_dir / "extract" / p for p in [lcfg.get("file"), lcfg.get("fallback_file")]
               if p and (data_dir / "extract" / p).exists()), None)
     if f is None:
@@ -138,7 +138,7 @@ def build_minimap_explorer(data_dir: Path, out_dir: Path, locs: dict, cfg: dict,
     """Interactive mini maps: location picker, layer checkboxes, and an overlay of postcode feature dots
     or an LSOA choropleth."""
     from pyproj import Transformer
-    from .interactive import _area_table, _num, var_label
+    from .postcode_data import _area_table, _num, var_label
     lsoa = _lsoa_source(data_dir, cfg.get("lsoa") or {}, area_variables) if area_variables else None
     to_ll = Transformer.from_crs(27700, 4326, always_xy=True)
     size = float(cfg.get("size_m", 5000))

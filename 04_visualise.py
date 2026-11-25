@@ -3,8 +3,6 @@
 
 * mini maps: a 5 km square around each key location with roads, water,
   greenspace, heritage and stations (``viz/minimaps.html``)
-* interactive: per area, every postcode on a street map coloured by a chosen
-  feature from sections 2 and 3 (``viz/interactive_<area>.html``)
 * cartograms: features averaged to constituencies / local authorities and
   drawn as equal hexagons or squares, MSOA hexes included (``viz/cartograms.html``)
 * choropleths: the same averaged to real boundaries (constituencies, local
@@ -13,6 +11,7 @@
 * networks: road and area networks around each key location (data for the map explorer)
 * explorer: the map explorer - map layers, postcode features and road network views for each
   key location on one page (``viz/explorer.html``)
+* dynamic: morphing (Gastner-Newman) and Dorling cartograms (``viz/dynamic_cartograms.html``)
 * variables: every column with its description (``viz/variables.html``)
 
 Configured in ``config/visualise.yaml``. Open ``<data_dir>/viz/index.html``.
@@ -35,7 +34,7 @@ import yaml
 from geodata.config import REPO_ROOT
 from geodata.viz import PAGE_CSS, label, resolve_locations
 
-STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "networks", "explorer", "variables")
+STEPS = ("minimaps", "cartograms", "choropleths", "heatmaps", "networks", "explorer", "dynamic", "variables")
 
 
 def steps_explorer(steps) -> bool:
@@ -106,11 +105,8 @@ def main(argv=None) -> int:
     if "minimaps" in steps and cfg.get("minimaps"):
         from geodata.viz.minimaps import build_minimaps
         build_minimaps(data_dir, out_dir, locs, cfg["minimaps"],
-                       variables=(cfg.get("interactive") or {}).get("variables"),
+                       variables=cfg["minimaps"].get("variables"),   # the explorer's postcode overlay
                        area_variables=(cfg.get("cartograms") or {}).get("variables"))   # same list as the choropleths
-    if "interactive" in steps and cfg.get("interactive"):
-        from geodata.viz.interactive import build_interactive
-        build_interactive(data_dir, out_dir, locs, cfg["interactive"])
     if "cartograms" in steps and cfg.get("cartograms"):
         from geodata.viz.cartograms import build_cartograms
         build_cartograms(data_dir, out_dir, cfg["cartograms"])
@@ -126,6 +122,9 @@ def main(argv=None) -> int:
     if steps_explorer(steps):   # one page for the mini map and network data
         from geodata.viz.explorer import build_explorer
         build_explorer(out_dir, float((cfg.get("minimaps") or {}).get("size_m", 5000)))
+    if "dynamic" in steps and cfg.get("dynamic"):
+        from geodata.viz.dynamic import build_dynamic
+        build_dynamic(data_dir, out_dir, cfg["dynamic"])
     if "variables" in steps:
         from geodata.viz.variables import build_variables
         build_variables(data_dir, out_dir)
@@ -147,6 +146,9 @@ def main(argv=None) -> int:
     if (out_dir / "choropleths.html").exists():
         links.append('<li><a href="choropleths.html">Choropleth maps</a>: constituencies, local authorities, MSOAs '
                      'and OS national grid squares (5, 10, 25, 50 km) on a street map</li>')
+    if (out_dir / "dynamic_cartograms.html").exists():
+        links.append('<li><a href="dynamic_cartograms.html">Dynamic cartograms</a>: areas resized by the people who live '
+                     'there - a shape-keeping cartogram that morphs from the real map, and Dorling circles</li>')
     if (out_dir / "small_multiples.html").exists():
         links.append('<li><a href="small_multiples.html">Small multiples</a>: nine variables side by side on the same '
                      'cartogram</li>')
@@ -156,10 +158,8 @@ def main(argv=None) -> int:
     if (out_dir / "variables.html").exists():
         links.append('<li><a href="variables.html">Variables</a>: every column in the postcode lookup and features, '
                      'with descriptions and coverage</li>')
-    inter = sorted(out_dir.glob("interactive_*.html"))
-    if inter:
-        items = "".join(f'<li><a href="{p.name}">{label(p.stem.removeprefix("interactive_"))}</a></li>' for p in inter)
-        links.append(f"<li>Interactive postcode features<ul>{items}</ul></li>")
+    for old in out_dir.glob("interactive_*.html"):   # retired: the map explorer's postcode overlay replaces them
+        old.unlink()
     import html as _html
     cards = "".join(
         f'<a class="card" href="{_html.escape(f["href"])}"><b>{_html.escape(f["title"])}</b>'

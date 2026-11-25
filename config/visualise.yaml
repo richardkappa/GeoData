@@ -3,7 +3,6 @@
 # -----------------------------------------------------------------------------
 # python 04_visualise.py                    -> <data_dir>/viz/index.html (links to everything)
 # python 04_visualise.py --only minimaps    -> viz/minimaps.html  (static 5 km mini maps)
-# python 04_visualise.py --only interactive -> viz/interactive_<area>.html (feature explorer)
 # =============================================================================
 
 global:
@@ -35,9 +34,6 @@ profiles:
     choropleths:
       grid_km: [5, 10, 25, 50]
       h3_res: [4, 5, 6]        # resolution 7 left out: too many hexagons for one web page
-    heatmaps:                  # coarser squares for the web: smaller files
-      rates:  {cell_m: 5000, smooth_cells: 1}   # a 5 km square already holds enough people
-      values: {cell_m: 5000}
 
 # --- derived postcode variables -----------------------------------------------
 # Computed per postcode (pandas expression over `uses`) before area averages;
@@ -55,6 +51,10 @@ derived:
     fill: {flood_high_cnt: 0, low_lying_near_river: 0}
 
 # --- featured maps on the index page (links straight to a view) ---------------
+# police.uk has no data from Greater Manchester Police (its 10 boroughs): crime variables are blanked
+# there (`blank_where`) rather than shown as zero
+police_gaps: &no_gmp {lad26cd: [E08000001, E08000002, E08000003, E08000004, E08000005, E08000006, E08000007, E08000008, E08000009, E08000010]}
+
 featured:
   - {title: House prices against deprivation, href: 'choropleths.html#geo=msoa&var=hp_price_1000m_w0&cmp=imd_index_of_multiple_deprivation_imd_score&bg=0',
      text: 'Bivariate map: where prices are high despite deprivation, or low without it'}
@@ -73,9 +73,9 @@ featured:
   - {title: Small multiples, href: small_multiples.html, text: Nine variables side by side on the same cartogram}
   - {title: Serious road collisions by neighbourhood, href: 'choropleths.html#geo=msoa&var=collisions_ksi_per_1000_res_yr_nbhd_2step&bg=0',
      text: 'Fatal or serious collisions per 1,000 residents a year, pooled over LSOAs within 2 boundaries'}
-  - {title: Collisions within a 30-minute drive, href: 'heatmaps.html#ds=value_collisions_within_30min_drive',
+  - {title: Collisions within a 30-minute drive, href: 'choropleths.html#geo=msoa&var=collisions_within_30min_drive',
      text: 'Road collisions on every road you could reach by car in 30 minutes, for every postcode'}
-  - {title: Stations within a 15-minute walk, href: 'heatmaps.html#ds=value_rail_stations_within_15min_walk',
+  - {title: Stations within a 15-minute walk, href: 'choropleths.html#geo=msoa&var=rail_stations_within_15min_walk',
      text: How many railway stations can be reached on foot, averaged over squares}
   - {title: Through-routes of central London, href: 'explorer.html#loc=St_Pauls&view=btw&layers=none&bg=light',
      text: Road centrality - which roads carry the shortest routes across the square}
@@ -116,12 +116,44 @@ locations:
   Hotspot_1_Hyde_Park_Corner: {xy: [528346, 179853], note: 'A4 at Hyde Park Corner: most collisions within a 30-minute drive (127,802)'}
   Hotspot_2_Brent_Cross:      {xy: [523998, 188447], note: 'A406 North Circular at Brent Cross: 2nd hotspot (123,708 within 30 min)'}
   Hotspot_3_Brentford:        {xy: [519171, 178455], note: 'A4 Great West Road, Brentford: 3rd hotspot (124,635 within 30 min)'}
+  # the highest density of takeaways outside London (features takeaways_within_1km; London's peak is 401)
+  Takeaway_hotspot_Manchester: {xy: [384834, 397838], note: 'Manchester city centre (M1 2BN): most takeaways within 1 km outside London (223)'}
 
 # --- static mini maps -------------------------------------------------------
 # Every location as a size_m x size_m square. Layers are drawn in order.
 # kind: polygon | line | point. `by` + `styles` style features by a column.
 # show: false = unticked by default in the map explorer (explorer.html).
 minimaps:
+  # map explorer postcode overlay (dots / heat surface): column: label, from postcode_features.parquet
+  # or postcode_lookup.parquet; {label, countries} blanks a variable outside the countries its source covers
+  variables:
+    hp_price_1000m_w0:                            Typical house price within 1 km, latest 12 months (£)
+    hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
+    lr_median_price:                              Median sale price in the postcode (£)
+    imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England; higher = more deprived)
+    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    bb_gigabit_availability_premises:             Gigabit broadband available (% of premises)
+    gas_median_cons_kwh:                          Median household gas use (kWh / year)
+    walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
+    walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
+    rail_stations_within_15min_walk:              {label: Railway stations within a 15-minute walk, countries: [E, W, S]}
+    walk_takeaways_min:                           Walking time to nearest takeaway (minutes)
+    collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
+    collisions_within_30min_drive:                {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S]}
+    takeaways_within_30min_drive:                 {label: Takeaways within a 30-minute drive, countries: [E, W, S]}
+    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W], blank_where: *no_gmp}
+    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W], blank_where: *no_gmp}
+    population_within_30min_drive:                {label: People living within a 30-minute drive, countries: [E, W, S]}
+    collisions_within_30min_drive_per_1000_people: {label: 'Road collisions within a 30-minute drive per 1,000 people within it', countries: [E, W, S]}
+    takeaways_within_30min_drive_per_10000_people: {label: 'Takeaways within a 30-minute drive per 10,000 people within it', countries: [E, W, S]}
+    burglaries_within_30min_drive_per_1000_people: {label: 'Burglaries within a 30-minute drive per 1,000 people within it (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    vehicle_crimes_within_30min_drive_per_1000_people: {label: 'Vehicle crimes within a 30-minute drive per 1,000 people within it (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
+    dist_coast_m:                                 Distance to the coast (m)
+    climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)
+    climate_sunshine_hours_avg:                   Annual sunshine, 2023-25 average (hours)
+    climate_temp_mean_c_avg:                      Mean temperature, 2023-25 average (°C)
+    uprn_count:                                   Addresses in the postcode
   size_m: 5000
   columns: 4                 # maps per row in the gallery
   dpi: 110
@@ -169,7 +201,8 @@ minimaps:
        style: {color: '#0b7a75', marker: s, s: 20, zorder: 8}}
 
 # --- hex cartograms ---------------------------------------------------------
-# Postcode values averaged to each area (weighted by addresses; `agg: sum` to
+# Postcode values averaged to each area (weighted by residents: Census 2021 ts001_total shared over each
+# output area's postcodes by addresses; `agg: sum` to
 # add up instead) and drawn as equal hexagons. Layouts from Open Innovations'
 # hexmaps (https://hexmap.uk, MIT licence); `code` is the lookup column the
 # layout's hex keys match.
@@ -216,14 +249,14 @@ cartograms:
     hp_change_1000m_w0_vs_w1:                     {label: House price change over 1 year (fraction), scale: diverging}
     hp_change_1000m_w0_vs_w3:                     {label: House price change over 3 years (fraction), scale: diverging}
     hp_change_1000m_w0_vs_w5:                     {label: House price change over 5 years (fraction), scale: diverging}
-    crime_change_12m_total:                       {label: 'Change in recorded crime, latest 12 months vs previous 12 (fraction)', scale: diverging}
+    crime_change_12m_total:                       {label: 'Change in recorded crime, latest 12 months vs previous 12 (fraction)', scale: diverging, blank_where: *no_gmp}
     climate_temp_change_2025_c:                   {label: 2025 mean temperature vs 2023-24 (°C), scale: diverging}
     temp_anomaly_c:                               {label: 'Climate change: 2023-25 mean temperature vs 1991-2020 (°C)', scale: diverging}
     rain_anomaly:                                 {label: 'Climate change: 2023-25 rainfall vs 1991-2020 (fraction)', scale: diverging}
     # hot spots adjusted for population
-    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
-    violent_crime_per_1000_residents_1km:         Violent crime within 1 km per 1,000 residents
-    burglary_per_100_households_1km:              Burglaries within 1 km per 100 households
+    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    violent_crime_per_1000_residents_1km:         {label: 'Violent crime within 1 km per 1,000 residents', blank_where: *no_gmp}
+    burglary_per_100_households_1km:              {label: 'Burglaries within 1 km per 100 households', blank_where: *no_gmp}
     collisions_per_1000_residents_1km:            {label: 'Road collisions within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
     takeaways_per_10000_residents_1km:            Takeaways within 1 km per 10,000 residents
     # travel times (access)
@@ -238,8 +271,26 @@ cartograms:
     collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
     collisions_within_30min_drive:                {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S]}
     takeaways_within_30min_drive:                 {label: Takeaways within a 30-minute drive, countries: [E, W, S]}
-    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W]}
-    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W]}
+    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W], blank_where: *no_gmp}
+    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W], blank_where: *no_gmp}
+    population_within_30min_drive:                {label: People living within a 30-minute drive, countries: [E, W, S]}
+    collisions_within_30min_drive_per_1000_people: {label: 'Road collisions within a 30-minute drive per 1,000 people within it', countries: [E, W, S]}
+    takeaways_within_30min_drive_per_10000_people: {label: 'Takeaways within a 30-minute drive per 10,000 people within it', countries: [E, W, S]}
+    burglaries_within_30min_drive_per_1000_people: {label: 'Burglaries within a 30-minute drive per 1,000 people within it (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    vehicle_crimes_within_30min_drive_per_1000_people: {label: 'Vehicle crimes within a 30-minute drive per 1,000 people within it (England and Wales)', countries: [E, W], blank_where: *no_gmp}
+    # rates per head for each area: points (named under `points:` in config/features.yaml) placed on their
+    # nearest postcode, summed over the area and divided by its residents / households / addresses
+    rate_collisions:        {rate: collisions, per: residents, scale: 1000, label: 'Road collisions per 1,000 residents (2021-25)'}
+    rate_collisions_ksi:    {rate: collisions_ksi, per: residents, scale: 1000, label: 'Fatal or serious road collisions per 1,000 residents (2021-25)'}
+    rate_crimes:            {rate: crimes, per: residents, scale: 1000, countries: [E, W], label: 'Recorded crime per 1,000 residents (24 months; England and Wales)', blank_where: *no_gmp}
+    rate_burglary:          {rate: burglary, per: households, scale: 100, countries: [E, W], label: 'Burglaries per 100 households (24 months; England and Wales)', blank_where: *no_gmp}
+    rate_vehicle_crime:     {rate: vehicle_crime, per: residents, scale: 1000, countries: [E, W], label: 'Vehicle crime per 1,000 residents (24 months; England and Wales)', blank_where: *no_gmp}
+    rate_antisocial:        {rate: antisocial, per: residents, scale: 1000, countries: [E, W], label: 'Anti-social behaviour per 1,000 residents (24 months; England and Wales)', blank_where: *no_gmp}
+    rate_takeaways:         {rate: takeaways, per: residents, scale: 10000, label: 'Takeaways per 10,000 residents'}
+    rate_pubs_bars:         {rate: pubs_bars, per: residents, scale: 10000, label: 'Pubs and bars per 10,000 residents'}
+    rate_gp_practices:      {rate: gp_practices, per: residents, scale: 10000, countries: [E, W], label: 'GP practices per 10,000 residents (England and Wales)'}
+    rate_listed_buildings:  {rate: listed_buildings, per: addresses, scale: 100, countries: [E], label: 'Listed buildings per 100 addresses (England)'}
+    rate_property_sales:    {rate: property_sales, per: addresses, scale: 100, countries: [E, W], label: 'House sales per 100 addresses (since 2020; England and Wales)'}
     casualties_per_1000_res_yr_nbhd_5step:        {label: 'Road casualties per 1,000 residents per year (LSOAs within 5 boundaries)', countries: [E, W]}
     walk_secondary_schools_min:                   {label: Walking time to nearest secondary school (minutes; England), countries: [E]}
     drive_hospitals_ae_min:                       {label: Drive time to nearest A&E (minutes; England), countries: [E]}
@@ -293,7 +344,7 @@ choropleths:
     variables:
       hp_price_1000m_w0:                           {label: house price, short: house prices}
       imd_index_of_multiple_deprivation_imd_score: {label: deprivation, short: deprivation}
-      crimes_per_1000_residents_1km:               {label: crime rate, short: crime, countries: [E, W]}
+      crimes_per_1000_residents_1km:               {label: crime rate, short: crime, countries: [E, W], blank_where: *no_gmp}
       share_built_up_2km:                          {label: built-up share, short: urban}
       bb_gigabit_availability_premises:            {label: gigabit broadband, short: gigabit broadband}
       walk_rail_stations_min:                      {label: walk to station, short: walk to station, countries: [E, W, S]}
@@ -301,6 +352,19 @@ choropleths:
       climate_rainfall_mm_avg:                     {label: rainfall, short: rainfall}
       elevation_m:                                 {label: elevation, short: elevation}
       gas_median_cons_kwh:                         {label: gas use, short: gas use}
+
+# --- dynamic cartograms -----------------------------------------------------
+# Morphing (contiguous, Gastner-Newman diffusion) and Dorling cartograms, sized by residents.
+# simplify_m: shared borders simplified together; cells: diffusion grid across the longer side;
+# passes: re-measure the density this many times (sharper fit); min_part_km2: smaller islands dropped
+dynamic:
+  geographies:
+    local_authorities: {label: Local authorities, file: ons_boundaries/lad.parquet, key: lad26cd, name_col: lad26nm,
+                        code: lad26cd, simplify_m: 600, cells: 512, passes: 10, min_part_km2: 15}
+    constituencies:    {label: Westminster constituencies (2024), file: ons_boundaries/westminster_2024.parquet,
+                        key: pcon24cd, name_col: pcon24nm, code: pcon24cd, simplify_m: 500, cells: 512, passes: 10,
+                        min_part_km2: 15}
+  variables: *area_variables
 
 # --- road networks (network views in the map explorer) -----------------------
 # Road and area networks around every location (network views in the map explorer, explorer.html)
@@ -343,67 +407,4 @@ heatmaps:
     gp_practices:      GP practices
     care_homes:        Care homes
     bus_stops:         Bus stops
-  # rates per head: points (from the datasets above) and people counted in grid
-  # squares, both summed over a window of squares to steady the rate. `per` is
-  # residents or households (Census 2021, England and Wales) or addresses (UPRNs, GB)
-  rates:
-    cell_m: 2000
-    smooth_cells: 3            # 3 x 3 squares = 6 km window
-    min_population: 1000
-    datasets:
-      collisions:        {label: 'Road collisions per 1,000 residents', per: residents, scale: 1000, note: 'Collisions over the 5 years extracted (STATS19).'}
-      collisions_ksi:    {label: 'Fatal or serious road collisions per 1,000 residents', per: residents, scale: 1000, note: 'Collisions over the 5 years extracted (STATS19).'}
-      crimes:            {label: 'Recorded crime per 1,000 residents', per: residents, scale: 1000, note: 'Crimes over the 24 months extracted; city centres score high partly because of visitors.'}
-      burglary:          {label: 'Burglaries per 100 households', per: households, scale: 100, note: 'Over the 24 months extracted.'}
-      vehicle_crime:     {label: 'Vehicle crime per 1,000 residents', per: residents, scale: 1000, note: 'Over the 24 months extracted.'}
-      antisocial:        {label: 'Anti-social behaviour per 1,000 residents', per: residents, scale: 1000, note: 'Over the 24 months extracted.'}
-      takeaways:         {label: 'Takeaways per 10,000 residents', per: residents, scale: 10000}
-      pubs_bars:         {label: 'Pubs and bars per 10,000 residents', per: residents, scale: 10000}
-      gp_practices:      {label: 'GP practices per 10,000 residents', per: residents, scale: 10000}
-      listed_buildings:  {label: 'Listed buildings per 100 addresses', per: addresses, scale: 100}
-      property_sales:    {label: 'House sales per 100 addresses', per: addresses, scale: 100, note: 'Standard sales since January 2020.'}
-  # postcode values averaged over squares (weighted by addresses); low_is_good colours short = green
-  values:
-    cell_m: 1000
-    datasets:
-      # breaks: fixed colour bands (otherwise eighths of the squares)
-      walk_rail_stations_min: {label: Walking time to the nearest railway station (minutes), countries: [E, W, S],
-                               breaks: [10, 15, 20, 30, 45, 60, 90]}
-      walk_takeaways_min:     {label: Walking time to the nearest takeaway (minutes), breaks: [10, 15, 20, 30, 45, 60, 90],
-                               note: 'Takeaways and sandwich shops in the FSA hygiene ratings.'}
-      rail_stations_within_15min_walk: {label: Railway stations within a 15-minute walk, countries: [E, W, S],
-                               low_is_good: false, breaks: [0.05, 0.25, 0.5, 0.75, 1, 1.5, 2],
-                               help: 'how many railway stations can be reached on foot within 15 minutes of home (street network, 4.8 km/h); more is better (green). Most of the country has none, so most squares are red.'}
-      collisions_within_30min_drive: {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S],
-                               help: 'how many road collisions (2021-25, all injury collisions) happened on roads you could reach within 30 minutes by car from home, at typical free-flow speeds; higher (red) is busier, more crash-prone road network nearby.'}
 
-# --- interactive feature explorer -------------------------------------------
-# One HTML page per area: every postcode in the square as a dot on a street
-# map, coloured by the chosen feature (drop-down), hover for all values.
-interactive:
-  size_m: 5000
-  areas: [South_London, Birmingham, Bath, York, Edinburgh, Windermere, St_Ives]
-  # column: label (columns come from postcode_features.parquet or postcode_lookup.parquet)
-  variables:
-    hp_price_1000m_w0:                            Typical house price within 1 km, latest 12 months (£)
-    hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
-    lr_median_price:                              Median sale price in the postcode (£)
-    imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England; higher = more deprived)
-    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
-    bb_gigabit_availability_premises:             Gigabit broadband available (% of premises)
-    gas_median_cons_kwh:                          Median household gas use (kWh / year)
-    walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
-    walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
-    rail_stations_within_15min_walk:              {label: Railway stations within a 15-minute walk, countries: [E, W, S]}
-    walk_takeaways_min:                           Walking time to nearest takeaway (minutes)
-    collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
-    collisions_within_30min_drive:                {label: Road collisions within a 30-minute drive (2021-25), countries: [E, W, S]}
-    takeaways_within_30min_drive:                 {label: Takeaways within a 30-minute drive, countries: [E, W, S]}
-    burglaries_within_30min_drive:                {label: Burglaries within a 30-minute drive (England and Wales), countries: [E, W]}
-    vehicle_crimes_within_30min_drive:            {label: Vehicle crimes within a 30-minute drive (England and Wales), countries: [E, W]}
-    dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
-    dist_coast_m:                                 Distance to the coast (m)
-    climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)
-    climate_sunshine_hours_avg:                   Annual sunshine, 2023-25 average (hours)
-    climate_temp_mean_c_avg:                      Mean temperature, 2023-25 average (°C)
-    uprn_count:                                   Addresses in the postcode

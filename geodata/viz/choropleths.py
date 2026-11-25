@@ -13,7 +13,7 @@ import pyarrow.compute as pc
 
 from . import PAGE_CSS, SCALE_JS, tile_js
 from .cartograms import _aggregate, _postcode_table
-from .interactive import _num
+from .postcode_data import _num
 
 log = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ html,body{height:100%} body{display:flex;flex-direction:column}
 .legend{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;line-height:18px}
 .legend i{display:inline-block;width:16px;height:14px;margin-right:6px;vertical-align:-2px;opacity:.85}
 </style></head><body>
-<header><h1>Choropleth maps</h1><p>Postcode features averaged to real geographies (weighted by addresses): ONS boundaries,
+<header><h1>Choropleth maps</h1><p>Postcode features averaged to real geographies (weighted by the people living in each postcode), and rates per head: ONS boundaries,
 Ordnance Survey national grid squares and <a href="https://h3geo.org">H3</a> hexagons (Uber's hierarchical hexagonal grid,
 Apache 2.0). Boundaries: ONS Open Geography (OGL v3), simplified for the web.
 <a href="index.html">All visualisations</a></p></header>
@@ -160,7 +160,7 @@ function build() {
       .bindTooltip(() => { const k = +sel.value, k2 = +cmp.value;
         return '<b>' + G.names[i] + '</b><br>' + D.vars[k].label + ': <b>' + show(k, G, i) + '</b>' +
           (k2 >= 0 ? '<br>' + D.vars[k2].label + ': <b>' + show(k2, G, i) + '</b>' : '') +
-          '<br><span style="color:#777">' + fmt(G.postcodes[i]) + ' postcodes, ' + fmt(G.addresses[i]) + ' addresses</span>'; },
+          '<br><span style="color:#777">' + fmt(G.residents[i]) + ' residents, ' + fmt(G.postcodes[i]) + ' postcodes, ' + fmt(G.addresses[i]) + ' addresses</span>'; },
         {sticky: true})
       .addTo(layer);
   });
@@ -297,6 +297,7 @@ def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
         data["geos"].append({
             "id": g["id"], "label": g["label"], "names": g["names"], "rings": g["rings"], "cats": cats,
             "postcodes": [int(v) for v in agg["postcodes"]], "addresses": [int(round(v)) for v in agg["addresses"]],
+            "residents": [int(round(v)) for v in agg["residents"]],
             "values": values})
         log.info("choropleths: %s - %d areas", g["label"], len(g["names"]))
     page = (TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__SCALE__", SCALE_JS)

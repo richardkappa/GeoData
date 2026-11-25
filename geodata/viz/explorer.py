@@ -21,7 +21,9 @@ import logging
 import time
 from pathlib import Path
 
+from ..features.network import DEFAULT_SPEEDS
 from . import PAGE_CSS, _basemap
+from .networks import CLASS_ORDER
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +80,8 @@ Open data: OS, ONS, DfT, Historic England, Natural England, NaPTAN and others. <
 <option value="btw">Road centrality: the through-routes</option>
 <option value="walk">Walking time from the centre</option>
 <option value="drive">Driving time from the centre</option>
+<option value="clickwalk">Walking time from a point you click</option>
+<option value="clickdrive">Driving time from a point you click</option>
 <option value="route">Shortest walk to the nearest railway station</option>
 <option value="walkst">Walking time to the nearest railway station (every road)</option>
 <option value="drivest">Driving time to the nearest railway station (every road)</option>
@@ -177,7 +181,7 @@ __NETWORK__
 // overlay first, then the network so it stays on top (one canvas: last drawn is uppermost)
 function redraw() { drawDots(); drawNet(); }
 function show(name) {
-  cur = name; nnote.textContent = ''; document.getElementById('note').textContent = '';
+  cur = name; origin = null; nnote.textContent = ''; document.getElementById('note').textContent = '';
   const loc = M.locations.find(l => l.name === name) || {};
   const go = () => { const D = window.MINIMAP[name] || window.NET[name]; if (!D) return;
     map.fitBounds(D.box);
@@ -268,7 +272,7 @@ function drawDots() {
       onEachFeature: (f, l) => l.bindTooltip(() => '<b>' + D.lsoa.names[f.properties.i] + '</b><br>' + M.areaVars[k] + ': <b>' +
         fmt(vals[f.properties.i]) + '</b>', {sticky: true})});
     dots.addTo(map);
-    lg.innerHTML = legendHtml(M.areaVars[k], s, 'LSOA averages (weighted by addresses); eighths of the LSOAs shown');
+    lg.innerHTML = legendHtml(M.areaVars[k], s, 'LSOA averages (weighted by residents); eighths of the LSOAs shown');
     lg.style.display = 'block';
     note.textContent = s.nums.length + ' of ' + vals.length + ' LSOAs have a value';
     return;
@@ -304,6 +308,52 @@ NETWORK_JS = r"""const HEAT = ['#ffffcc','#fed976','#fd8d3c','#e31a1c','#800026'
 const TIME = ['#1a9850','#91cf60','#d9ef8b','#fee08b','#fc8d59','#d73027'], TB = [5, 10, 15, 20, 30];
 const RING = ['#111111', '#1b9e77', '#d95f02', '#7570b3'];
 const pl = c => { const a = []; for (let k = 0; k < c.length; k += 2) a.push([c[k], c[k + 1]]); return a; };
+// --- travel time from a clicked point: the square's road links rebuilt as a graph in the browser
+// (links meet where their end coordinates match), then a shortest-path search (Dijkstra) from the
+// junction nearest the click. Drive speeds by road class as in section 3; walking skips motorways.
+const SPEEDS = __SPEEDS__, WALK_KMH = __WALK_KMH__;
+let origin = null;
+function graphOf(D) {
+  if (D._g) return D._g;
+  const id = new Map(), xy = [], adj = [];
+  const node = (la, lo) => { const k = la + ',' + lo; let i = id.get(k);
+    if (i === undefined) { i = xy.length; id.set(k, i); xy.push([la, lo]); adj.push([]); } return i; };
+  const R = 6371000, rad = Math.PI / 180;
+  D.links.forEach((l, li) => { const c = l[0], n = c.length;
+    let m = 0;
+    for (let k = 2; k < n; k += 2) { const p1 = c[k - 2] * rad, p2 = c[k] * rad, dl = (c[k + 1] - c[k - 1]) * rad;
+      const x = dl * Math.cos((p1 + p2) / 2), y = p2 - p1; m += R * Math.sqrt(x * x + y * y); }
+    const a = node(c[0], c[1]), b = node(c[n - 2], c[n - 1]);
+    adj[a].push([b, m, l[1], li]); adj[b].push([a, m, l[1], li]); });
+  return (D._g = {xy, adj});
+}
+function travelFrom(G, src, walk) {   // seconds to every junction (binary-heap Dijkstra)
+  const dist = new Float64Array(G.xy.length).fill(Infinity), heap = [[0, src]];
+  dist[src] = 0;
+  const push = e => { heap.push(e); let i = heap.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop();
+    if (heap.length) { heap[0] = last; let i = 0;
+      for (;;) { const l = 2 * i + 1, r = l + 1; let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } }
+    return top; };
+  while (heap.length) {
+    const [d, u] = pop(); if (d > dist[u]) continue;
+    for (const [v, m, cls] of G.adj[u]) {
+      if (walk && cls === 0) continue;                          // no walking on motorways
+      const nd = d + m / ((walk ? WALK_KMH : SPEEDS[cls]) / 3.6);
+      if (nd < dist[v]) { dist[v] = nd; push([nd, v]); } } }
+  return dist;
+}
+function nearestNode(G, ll, walk) {
+  let best = -1, bd = Infinity;
+  G.xy.forEach((p, i) => { if (walk && G.adj[i].every(e => e[2] === 0)) return;
+    const dy = p[0] - ll.lat, dx = (p[1] - ll.lng) * Math.cos(ll.lat * Math.PI / 180), d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+map.on('click', e => { if (view.value === 'clickwalk' || view.value === 'clickdrive') { origin = e.latlng; drawNet(); } });
 function tband(t) { if (t === null) return null; let k = 0; while (k < TB.length && t > TB[k]) k++; return TIME[k]; }
 function drawNet() {
   if (layer) { map.removeLayer(layer); layer = null; }
@@ -322,6 +372,25 @@ function drawNet() {
       L.polyline(pl(l[0]), {color: HEAT[k], weight: 0.8 + 6 * Math.sqrt(b), opacity: 0.9}).bindTooltip('share of sampled routes: ' + (b * 100).toFixed(0) + '% of the busiest road', {sticky: true}).addTo(layer); });
     lg = '<b>Road centrality</b><br>' + HEAT.map((c, i) => '<i style="background:' + c + ';height:' + (2 + i) + 'px"></i>' + ['quiet', '', 'busy', '', 'main through-route'][i]).join('<br>') +
       '<br><span style="color:#777">how many shortest drives between places in the square pass along each road (sampled)</span>';
+  } else if (v === 'clickwalk' || v === 'clickdrive') {
+    const walk = v === 'clickwalk', G = graphOf(D);
+    const o = origin && L.latLngBounds(D.box).pad(0.1).contains(origin) ? origin : L.latLng(D.centre[0], D.centre[1]);
+    const src = nearestNode(G, o, walk), dist = travelFrom(G, src, walk);
+    const ends = D._ends || (D._ends = D.links.map(l => { const c = l[0], n = c.length;
+      const key = (la, lo) => la + ',' + lo; return [key(c[0], c[1]), key(c[n - 2], c[n - 1])]; }));
+    const idOf = D._idOf || (D._idOf = new Map(G.xy.map((p, i) => [p[0] + ',' + p[1], i])));
+    D.links.forEach((l, li) => {
+      if (walk && l[1] === 0) return;
+      const t = Math.min(dist[idOf.get(ends[li][0])], dist[idOf.get(ends[li][1])]);
+      if (!isFinite(t)) return;
+      const mins = Math.round(t / 6) / 10;
+      L.polyline(pl(l[0]), {color: tband(mins), weight: 2.4, opacity: 0.9}).bindTooltip(mins + ' min', {sticky: true}).addTo(layer); });
+    L.circleMarker(G.xy[src], {radius: 7, color: '#000', weight: 2.5, fillColor: '#fff', fillOpacity: 1}).bindTooltip('start').addTo(layer);
+    lg = '<b>' + (walk ? 'Walking' : 'Driving') + ' time from the point you clicked</b><br>' +
+      TIME.map((c, i) => '<i style="background:' + c + '"></i>' + (i === 0 ? 'up to 5' : i === 5 ? 'over 30' : TB[i - 1] + ' to ' + TB[i]) + ' min').join('<br>') +
+      '<br><span style="color:#777">click anywhere in the square to move the start; over the roads in the square' +
+      (walk ? ' at ' + WALK_KMH + ' km/h, motorways excluded' : ' at typical speeds by road class') + '</span>';
+    nnote.textContent = origin ? '' : 'click the map to choose where to start';
   } else if (v === 'walk' || v === 'drive') {
     const idx = v === 'walk' ? 3 : 4;
     D.links.forEach(l => { const c = tband(l[idx]); if (c) L.polyline(pl(l[0]), {color: c, weight: 2.2, opacity: 0.9})
@@ -436,6 +505,8 @@ def build_explorer(out_dir: Path, size_m: float = 5000) -> Path | None:
             .replace("__TILES__", _tiles_js())
             .replace("__VER__", str(int(time.time())))
             .replace("__OVERLAY__", OVERLAY_JS).replace("__NETWORK__", NETWORK_JS)
+            .replace("__SPEEDS__", json.dumps([DEFAULT_SPEEDS.get(c, 25) for c in CLASS_ORDER]))   # after NETWORK_JS
+            .replace("__WALK_KMH__", "4.8")
             .replace("__META__", json.dumps(meta, separators=(",", ":"))))
     out = out_dir / "explorer.html"
     out.write_text(page, encoding="utf-8")

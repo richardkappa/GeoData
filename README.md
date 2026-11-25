@@ -12,7 +12,7 @@ The pipeline runs in four sections, in order:
 | 1 | **Data extraction**: download and standardise each source | `01_extract.py` + `config/extract.yaml` | ✅ built |
 | 2 | **Collation and merges**: one flat lookup row per postcode | `02_collate.py` + `config/collate.yaml` | ✅ flat lookup built |
 | 3 | **New data creation**: distances, densities, travel times, climate, trends, neighbourhood averages | `03_features.py` + `config/features.yaml` | ✅ built |
-| 4 | **Visualisations**: mini maps and interactive postcode maps, as HTML | `04_visualise.py` + `config/visualise.yaml` | ✅ first version |
+| 4 | **Visualisations**: mini maps, the map explorer, cartograms, choropleths and heat maps, as HTML | `04_visualise.py` + `config/visualise.yaml` | ✅ first version |
 
 All four sections are plain `.py` scripts. They are long-running batch jobs, so they
 are easier to rerun, schedule and log than notebooks.
@@ -241,16 +241,18 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   LSOA neighbour network with road "bridges" across rivers and the rings within
   1, 2 and 3 boundaries used for spatial smoothing); and a **postcode overlay**
   (postcode dots, a smooth surface, or an LSOA choropleth of a feature, with
-  its own opacity). Map layers (including takeaways and GP surgeries) and the
+  its own opacity; the postcode features are listed under `minimaps.variables`
+  in `config/visualise.yaml`). Map layers (including takeaways and GP surgeries) and the
   background map are ticked in the side panel. A view can be opened directly,
   e.g. `explorer.html#loc=Bath&view=walk&mode=lsoa&var=2&layers=none&bg=light`.
   The old `minimap_explorer.html` address forwards here.
-* **Interactive maps** (`interactive_<area>.html`): every live postcode in an
-  area as a dot on a street map. A drop-down picks which feature colours the
-  dots (house prices and trends, deprivation, crime, broadband, energy use,
-  walking times, climate...); hovering a dot shows all of them.
-* **Cartograms** (`cartograms.html`): features averaged to each area (weighted
-  by addresses) and drawn with every area the same size: Westminster
+* **Cartograms** (`cartograms.html`): features averaged to each area, weighted
+  by the people living in each postcode (each output area's Census 2021
+  `ts001_total` shared over its postcodes by their addresses; estimated from
+  addresses in Scotland and Northern Ireland), plus rates per head (crime,
+  collisions, takeaways, GP practices... per 1,000 residents: points placed on
+  their nearest postcode and totalled per area), drawn with every area the
+  same size: Westminster
   constituencies and local authorities as hexes, NHS Primary Care Networks
   (1,261 hexes; each postcode takes the PCN of its nearest GP practice, an
   approximation because patients register where they choose) and MSOAs as 7,264
@@ -262,7 +264,13 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   simplified for the web) and Ordnance Survey national grid squares of 5, 10, 25
   and 50 km, labelled with their grid reference. The background map can be
   switched off.
-* **Heat maps**, **small multiples** and a searchable **variables** page; the
+* **Dynamic cartograms** (`dynamic_cartograms.html`): local authorities and
+  constituencies resized by their residents. A shape-keeping cartogram
+  (Gastner-Newman diffusion, worked out at build time; sizes within 2-3% of
+  population) that morphs from the real map with a slider, and Dorling circles
+  pushed apart by a live force simulation, sized by residents, households,
+  addresses or land area.
+* **Heat maps** (where points are concentrated), **small multiples** and a searchable **variables** page; the
   index has links straight to featured views.
 
 Locations can be given as BNG coordinates or as a postcode. The layers, styles,
@@ -362,7 +370,7 @@ These are other open UK sources that join at postcode or small-area level:
 01_extract.py            section 1 runner (CLI)
 02_collate.py            section 2 runner: flat postcode lookup
 03_features.py           section 3 runner: postcode features
-04_visualise.py          section 4 runner: HTML mini maps and interactive maps
+04_visualise.py          section 4 runner: HTML mini maps, map explorer, area maps
 config/extract.yaml      what to download, and the source parameters
 config/collate.yaml      which columns and joins go into the postcode lookup
 geodata/
@@ -375,7 +383,7 @@ geodata/
   vector.py              streaming GDAL -> GeoParquet conversion
   collate.py             section 2 join engine (postcode / area / polygon / summary)
   features/              section 3 feature groups
-  viz/                   section 4 mini maps and interactive pages
+  viz/                   section 4 mini maps, map explorer and area pages
   sources/               one module per data family; each registers its extractors
 legacy/                  the original notebooks and KeyFunctions.py (manual downloads, hard-coded local paths)
   Investigations/        earlier experiments (they import ../KeyFunctions, i.e. legacy/KeyFunctions.py)

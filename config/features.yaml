@@ -166,7 +166,8 @@ network:
   # per measure; measures with the same mode and minutes share one set of searches, so extra ones are
   # cheap. Worked out per 500 m grid square with postcodes (cell_m); tiles run in parallel (workers).
   # Optional per measure: weight (column to sum), what (wording for the description), note,
-  # countries (blank elsewhere: e.g. [E, W, N] for police.uk crime, which does not cover Scotland).
+  # countries (blank elsewhere: e.g. [E, W, N] for police.uk crime, which does not cover Scotland),
+  # snap_m. `population: residents` (instead of points) counts the people living within reach.
   reach:
     cell_m: 500
     tile_m: 20000
@@ -183,7 +184,19 @@ network:
                                             what: 'burglaries (police.uk street-level crime, the months extracted; England, Wales and Northern Ireland)'}
       vehicle_crimes_within_30min_drive:   {mode: drive, minutes: 30, points: vehicle_crime, countries: [E, W, N],
                                             what: 'vehicle crimes - theft of or from a vehicle (police.uk, the months extracted; England, Wales and Northern Ireland)'}
+      population_within_30min_drive:       {mode: drive, minutes: 30, population: residents,
+                                            what: 'residents (Census 2021, shared over each output area by addresses; estimated from addresses in Scotland)'}
       bus_stops_within_10min_walk:         {mode: walk, minutes: 10, points: bus_stops}
+    # per head: a measure divided by the people within the same reach (min_population: blank below it)
+    per_head:
+      collisions_within_30min_drive_per_1000_people:     {of: collisions_within_30min_drive, per: population_within_30min_drive, scale: 1000,
+                                                          note: 'road collisions (2021-25) within a 30-minute drive per 1,000 people living within a 30-minute drive'}
+      takeaways_within_30min_drive_per_10000_people:     {of: takeaways_within_30min_drive, per: population_within_30min_drive, scale: 10000,
+                                                          note: 'takeaways within a 30-minute drive per 10,000 people living within a 30-minute drive'}
+      burglaries_within_30min_drive_per_1000_people:     {of: burglaries_within_30min_drive, per: population_within_30min_drive, scale: 1000,
+                                                          note: 'burglaries within a 30-minute drive per 1,000 people living within a 30-minute drive (England, Wales and Northern Ireland)'}
+      vehicle_crimes_within_30min_drive_per_1000_people: {of: vehicle_crimes_within_30min_drive, per: population_within_30min_drive, scale: 1000,
+                                                          note: 'vehicle crimes within a 30-minute drive per 1,000 people living within a 30-minute drive (England, Wales and Northern Ireland)'}
 
 # --- 12. house price trend --------------------------------------------------
 house_prices:

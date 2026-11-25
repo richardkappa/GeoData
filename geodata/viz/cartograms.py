@@ -17,14 +17,88 @@ import pyarrow.parquet as pq
 from .. import download as dl
 from ..postcode import POSTCODE_KEY
 from . import DERIVED, PAGE_CSS, SCALE_JS
-from .interactive import _num
+from .postcode_data import _num
 
 log = logging.getLogger(__name__)
 
 
+POP_COLS = {"residents": "ts001_total", "households": "ts017_total_all_household_spaces"}
+
+
+def _postcode_people(t: pa.Table) -> pa.Table:
+    """Residents, households and addresses per postcode, appended as _residents / _households / _addresses.
+
+    The census totals (ts001_total = usual residents, ts017 = household spaces) are per output area and
+    repeated on each of its postcodes, so each OA's total is shared across its live postcodes in
+    proportion to their addresses (equally if it has none), as section 3 does. Where there is no census
+    (Scotland, Northern Ireland) people are estimated from addresses with the England and Wales ratio, or,
+    where a postcode has no address count either (Northern Ireland), as a typical England and Wales
+    postcode, so area averages can be weighted by the people living there everywhere."""
+    n = t.num_rows
+    addr = (pc.fill_null(pc.cast(t["uprn_count"], pa.float64()), 0).to_numpy(zero_copy_only=False)
+            if "uprn_count" in t.column_names else np.zeros(n))
+    out = {"_addresses": addr}
+    if "oa21cd" in t.column_names:
+        enc = pc.dictionary_encode(pc.fill_null(t["oa21cd"], "")).combine_chunks()
+        g = enc.indices.to_numpy()
+        sum_a = np.bincount(g, weights=addr)
+        cnt = np.bincount(g)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            share = np.where(sum_a[g] > 0, addr / sum_a[g], 1.0 / cnt[g])
+    else:
+        share = np.full(n, np.nan)
+    for name, col in POP_COLS.items():
+        if col in t.column_names:
+            tot = pc.cast(t[col], pa.float64()).to_numpy(zero_copy_only=False)
+            v = tot * share
+            known = np.isfinite(v)
+            ratio = v[known].sum() / max(addr[known].sum(), 1)       # people (households) per address, E&W
+            per_pc = v[known].mean() if known.any() else 0.0          # ... and per postcode
+            # no census: estimate from addresses; no address count either (Northern Ireland): a typical postcode
+            v = np.where(known, v, np.where(addr > 0, addr * ratio, per_pc))
+        else:
+            v = addr.copy()
+        out[f"_{name}"] = v
+    for k, v in out.items():
+        t = t.append_column(k, pa.array(v, pa.float64()))
+    return t
+
+
+def _rate_counts(data_dir: Path, t: pa.Table, rates: dict) -> pa.Table:
+    """For `{rate: <points>, per: residents|households|addresses, scale}` variables: each point (a named
+    dataset under `points:` in config/features.yaml) goes to its nearest postcode (within 2 km), and the
+    variable's column holds the count per postcode; areas then sum counts and people."""
+    import yaml
+    from scipy.spatial import cKDTree
+    from ..config import REPO_ROOT
+    from ..features.data import load_points
+    points = (yaml.safe_load(open(REPO_ROOT / "config" / "features.yaml", encoding="utf-8")) or {}).get("points", {})
+    x = pc.cast(t["easting"], pa.float64()).to_numpy(zero_copy_only=False)
+    y = pc.cast(t["northing"], pa.float64()).to_numpy(zero_copy_only=False)
+    ok = np.isfinite(x) & np.isfinite(y)
+    tree = cKDTree(np.column_stack([x[ok], y[ok]]))
+    rows = np.flatnonzero(ok)
+    for c, spec in rates.items():
+        name = spec["rate"]
+        if name not in points:
+            log.warning("rate %s skipped: %s is not a named point dataset in config/features.yaml", c, name)
+            continue
+        try:
+            P = load_points(data_dir, points[name], None)
+        except FileNotFoundError as e:
+            log.warning("rate %s skipped: %s", c, e)
+            continue
+        d, i = tree.query(np.column_stack([P.x, P.y]), distance_upper_bound=2000, workers=-1)
+        hit = np.isfinite(d)
+        cnt = np.bincount(rows[i[hit]], minlength=t.num_rows).astype("f8")
+        t = t.append_column(c, pa.array(cnt))
+        log.info("rate %s: %s of %s %s placed on postcodes", c, f"{int(hit.sum()):,}", f"{len(P.x):,}", name)
+    return t
+
+
 def _postcode_table(data_dir: Path, codes: list[str], variables: dict) -> pa.Table:
-    """Live postcodes with area codes, address weights and the requested variables
-    (derived variables are computed from their `uses` columns)."""
+    """Live postcodes with area codes, people / address weights and the requested variables
+    (derived variables are computed from their `uses` columns; rate variables count points per postcode)."""
     derived = {c: DERIVED[c] for c in variables if c in DERIVED}
     if derived:
         base = {c: v for c, v in variables.items() if c not in derived}
@@ -38,24 +112,39 @@ def _postcode_table(data_dir: Path, codes: list[str], variables: dict) -> pa.Tab
     lnames = set(pq.read_schema(lookup_f).names)
     if any(v.get("countries") for v in variables.values()) and "ctry26cd" in lnames:
         codes = [*codes, "ctry26cd"]
+    codes = [*codes, *(k for v in variables.values() for k in (v.get("blank_where") or {}) if k in lnames)]
     fnames = set(pq.read_schema(feat_f).names) if feat_f.exists() else set()
-    lcols = [POSTCODE_KEY, *(c for c in codes if c in lnames), *(c for c in ["uprn_count"] if c in lnames),
-             *(c for c in variables if c in lnames and c not in fnames)]
+    rates = {c: v for c, v in variables.items() if v.get("rate")}
+    lcols = [POSTCODE_KEY, *(c for c in codes if c in lnames),
+             *(c for c in ["uprn_count", "oa21cd", *POP_COLS.values()] if c in lnames),
+             *(["easting", "northing"] if rates else []),
+             *(c for c in variables if c in lnames and c not in fnames and c not in rates)]
     lt = pq.read_table(lookup_f, columns=list(dict.fromkeys(lcols)))
     if fnames:
-        fcols = [*(c for c in variables if c in fnames), *(c for c in codes if c in fnames and c not in lnames)]
+        fcols = [*(c for c in variables if c in fnames and c not in rates),
+                 *(c for c in codes if c in fnames and c not in lnames)]
         ft = pq.read_table(feat_f, columns=[POSTCODE_KEY, *dict.fromkeys(fcols)])
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
         lt = lt.filter(pc.is_valid(idx))   # live postcodes only (the features spine)
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
         for c in ft.column_names[1:]:
             lt = lt.append_column(c, ft[c].take(idx))
+    lt = _postcode_people(lt)
+    if rates:
+        lt = _rate_counts(data_dir, lt, rates)
     return _mask_countries(lt, variables)
 
 
 def _mask_countries(t: pa.Table, variables: dict) -> pa.Table:
     """Blank variables outside the countries their source covers (`countries: [E, W]`), e.g. drive time
-    to A&E uses CQC data for England only, so elsewhere the 'nearest' A&E would be a false long trip."""
+    to A&E uses CQC data for England only, so elsewhere the 'nearest' A&E would be a false long trip.
+    `blank_where: {column: [codes]}` blanks them in particular areas with no data, e.g. Greater Manchester
+    for police.uk crime (Greater Manchester Police does not supply it)."""
+    for c, spec in variables.items():
+        for col, vals in (spec.get("blank_where") or {}).items():
+            if c in t.column_names and col in t.column_names:
+                hit = pc.fill_null(pc.is_in(pc.cast(t[col], pa.string()), value_set=pa.array([str(x) for x in vals])), False)
+                t = t.set_column(t.schema.get_field_index(c), c, pc.if_else(hit, pa.nulls(t.num_rows, t[c].type), t[c]))
     if "ctry26cd" not in t.column_names:
         return t
     first = pc.utf8_slice_codeunits(t["ctry26cd"], 0, 1)
@@ -89,18 +178,25 @@ def _add_derived(t: pa.Table, derived: dict) -> pa.Table:
 
 
 def _aggregate(t: pa.Table, code_col: str, area_codes: list[str], variables: dict) -> dict:
-    """Address-weighted mean of each variable per area ('sum' variables are summed)."""
+    """Mean of each variable per area weighted by the people living in each postcode (`_residents`, from
+    the census total ts001_total; see _postcode_people). 'sum' variables are summed; rate variables are
+    the area's points per head (`per` residents / households / addresses, times `scale`), blank below
+    `min_population` people."""
     pos = {c: i for i, c in enumerate(area_codes)}
     codes = t[code_col].to_pylist()
     g = np.array([pos.get(c, -1) for c in codes])
     ok = g >= 0
     g = g[ok]
     n = len(area_codes)
-    w = t["uprn_count"].to_numpy(zero_copy_only=False).astype("f8")[ok] if "uprn_count" in t.column_names \
-        else np.ones(int(ok.sum()))
-    w = np.where(np.isfinite(w) & (w > 0), w, 1.0)   # postcodes without an address count still count once
+    def col_of(name):
+        return (t[name].to_numpy(zero_copy_only=False).astype("f8")[ok] if name in t.column_names
+                else np.ones(int(ok.sum())))
+    people = {k: np.nan_to_num(col_of(f"_{k}")) for k in ("residents", "households", "addresses")}
+    w = people["residents"]                            # weights: the people living in each postcode
     out = {"postcodes": np.bincount(g, minlength=n).astype("f8"),
-           "addresses": np.bincount(g, weights=w, minlength=n)}
+           "addresses": np.bincount(g, weights=people["addresses"], minlength=n),
+           "residents": np.bincount(g, weights=w, minlength=n),
+           "households": np.bincount(g, weights=people["households"], minlength=n)}
     for c, spec in variables.items():
         if c not in t.column_names:
             continue
@@ -111,7 +207,14 @@ def _aggregate(t: pa.Table, code_col: str, area_codes: list[str], variables: dic
             continue
         v = col.to_numpy(zero_copy_only=False).astype("f8")[ok]
         has = np.isfinite(v)
-        if spec.get("agg") == "sum":
+        if spec.get("rate"):
+            per = spec.get("per", "residents")
+            den = np.bincount(g[has], weights=people.get(per, w)[has], minlength=n)   # people where there is data
+            num = np.bincount(g[has], weights=v[has], minlength=n)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                out[c] = np.where(den >= float(spec.get("min_population", 100)),
+                                  num / den * float(spec.get("scale", 1000)), np.nan)
+        elif spec.get("agg") == "sum":
             out[c] = np.bincount(g[has], weights=v[has], minlength=n)
         else:
             sw = np.bincount(g[has], weights=w[has], minlength=n)
@@ -208,7 +311,7 @@ path.hex{stroke:#fff;stroke-width:0.5;cursor:pointer} path.hex:hover{stroke:#111
 ol{padding-left:20px;margin:4px 0} li{margin:1px 0}
 </style></head><body>
 <header><h1>Cartograms</h1><p>Every area drawn the same size, so densely populated places are as visible as large rural ones.
-Values are averages of the postcodes in each area, weighted by their number of addresses.
+Values are averages of the postcodes in each area, weighted by the people living in them (Census 2021 residents; estimated from addresses in Scotland and Northern Ireland); rates are the area's total per head.
 Layouts: <a href="https://hexmap.uk">Open Innovations hexmaps</a> (MIT) and the
 <a href="https://github.com/OrdnanceSurvey/equal-area-cartogram">Ordnance Survey equal-area cartogram</a>
 (OGL v3; contains OS and National Statistics data © Crown copyright and database right 2019).
@@ -270,7 +373,7 @@ function draw() {
   svg.querySelectorAll('path.hex').forEach(el => {
     el.onmousemove = e => { const i = +el.dataset.i; tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 10) + 'px';
       tip.innerHTML = '<b>' + L.name[i] + '</b><br>' + label + ': <b>' + fmt(V[i]) + '</b><br><span style="color:#777">' +
-        fmt(L.postcodes[i]) + ' postcodes, ' + fmt(L.addresses[i]) + ' addresses</span>'; };
+        fmt(L.residents[i]) + ' residents, ' + fmt(L.postcodes[i]) + ' postcodes, ' + fmt(L.addresses[i]) + ' addresses</span>'; };
     el.onmouseleave = () => tip.style.display = 'none'; });
   document.getElementById('legend').innerHTML = legendHtml(label, S, '<br><i style="background:#e3e3e3"></i>no data');
   const ranked = V.map((v, i) => [v, i]).filter(a => typeof a[0] === 'number').sort((a, b) => b[0] - a[0]);
@@ -330,6 +433,7 @@ def build_cartograms(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
         data["layouts"].append({
             "id": name, "label": spec.get("label", name), **shape, "name": names,
             "postcodes": [int(v) for v in agg["postcodes"]], "addresses": [int(round(v)) for v in agg["addresses"]],
+            "residents": [int(round(v)) for v in agg["residents"]],
             "values": [_num(pa.chunked_array([pa.array(agg[c], from_pandas=True)])) for c in found],
         })
     if not data["layouts"]:
