@@ -291,6 +291,25 @@ heatmaps:
     gp_practices:      GP practices
     care_homes:        Care homes
     bus_stops:         Bus stops
+  # rates per head: points (from the datasets above) and people counted in grid
+  # squares, both summed over a window of squares to steady the rate. `per` is
+  # residents or households (Census 2021, England and Wales) or addresses (UPRNs, GB)
+  rates:
+    cell_m: 2000
+    smooth_cells: 3            # 3 x 3 squares = 6 km window
+    min_population: 1000
+    datasets:
+      collisions:        {label: 'Road collisions per 1,000 residents', per: residents, scale: 1000, note: 'Collisions over the 5 years extracted (STATS19).'}
+      collisions_ksi:    {label: 'Fatal or serious road collisions per 1,000 residents', per: residents, scale: 1000, note: 'Collisions over the 5 years extracted (STATS19).'}
+      crimes:            {label: 'Recorded crime per 1,000 residents', per: residents, scale: 1000, note: 'Crimes over the 24 months extracted; city centres score high partly because of visitors.'}
+      burglary:          {label: 'Burglaries per 100 households', per: households, scale: 100, note: 'Over the 24 months extracted.'}
+      vehicle_crime:     {label: 'Vehicle crime per 1,000 residents', per: residents, scale: 1000, note: 'Over the 24 months extracted.'}
+      antisocial:        {label: 'Anti-social behaviour per 1,000 residents', per: residents, scale: 1000, note: 'Over the 24 months extracted.'}
+      takeaways:         {label: 'Takeaways per 10,000 residents', per: residents, scale: 10000}
+      pubs_bars:         {label: 'Pubs and bars per 10,000 residents', per: residents, scale: 10000}
+      gp_practices:      {label: 'GP practices per 10,000 residents', per: residents, scale: 10000}
+      listed_buildings:  {label: 'Listed buildings per 100 addresses', per: addresses, scale: 100}
+      property_sales:    {label: 'House sales per 100 addresses', per: addresses, scale: 100, note: 'Standard sales since January 2020.'}
 
 # --- interactive feature explorer -------------------------------------------
 # One HTML page per area: every postcode in the square as a dot on a street
