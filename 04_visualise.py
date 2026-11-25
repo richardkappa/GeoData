@@ -54,6 +54,7 @@ def main(argv=None) -> int:
 
     import geodata.viz as viz
     viz.BASEMAPS.update(g.get("basemaps") or {})
+    viz.DERIVED.update(cfg.get("derived") or {})
     locs = resolve_locations(data_dir, cfg.get("locations", {}))
     log.info("%d locations", len(locs))
     steps = a.only or STEPS
@@ -91,6 +92,9 @@ def main(argv=None) -> int:
     if (out_dir / "choropleths.html").exists():
         links.append('<li><a href="choropleths.html">Choropleth maps</a>: constituencies, local authorities, MSOAs '
                      'and OS national grid squares (5, 10, 25, 50 km) on a street map</li>')
+    if (out_dir / "small_multiples.html").exists():
+        links.append('<li><a href="small_multiples.html">Small multiples</a>: nine variables side by side on the same '
+                     'cartogram</li>')
     if (out_dir / "heatmaps.html").exists():
         links.append('<li><a href="heatmaps.html">Heat maps</a>: where things are concentrated (crime, collisions, '
                      'listed buildings, food outlets, house sales...)</li>')
@@ -101,10 +105,20 @@ def main(argv=None) -> int:
     if inter:
         items = "".join(f'<li><a href="{p.name}">{label(p.stem.removeprefix("interactive_"))}</a></li>' for p in inter)
         links.append(f"<li>Interactive postcode features<ul>{items}</ul></li>")
+    import html as _html
+    cards = "".join(
+        f'<a class="card" href="{_html.escape(f["href"])}"><b>{_html.escape(f["title"])}</b>'
+        f'<span>{_html.escape(f.get("text", ""))}</span></a>'
+        for f in cfg.get("featured") or [] if (out_dir / f["href"].split("#")[0]).exists())
+    featured = f'<h2>Featured maps</h2><div class="cards">{cards}</div><h2>All pages</h2>' if cards else ""
     (out_dir / "index.html").write_text(
         f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GeoData visualisations</title>'
-        f'<style>{PAGE_CSS} li{{margin:6px 0}}</style></head><body><header><h1>GeoData visualisations</h1>'
-        f'<p>UK open data by postcode</p></header><main><ul>{"".join(links)}</ul></main></body></html>',
+        f'<style>{PAGE_CSS} li{{margin:6px 0}} h2{{font-size:17px;margin:18px 0 8px}}'
+        f'.cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}'
+        f'.card{{background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 3px #0002;text-decoration:none;color:#222}}'
+        f'.card b{{display:block;margin-bottom:4px;color:#1d5f8a}} .card span{{font-size:13px;color:#555}}'
+        f'.card:hover{{box-shadow:0 2px 8px #0003}}</style></head><body><header><h1>GeoData visualisations</h1>'
+        f'<p>UK open data by postcode</p></header><main>{featured}<ul>{"".join(links)}</ul></main></body></html>',
         encoding="utf-8")
     log.info("visualisations written to %s in %.0fs", out_dir, time.perf_counter() - t0)
     return 0

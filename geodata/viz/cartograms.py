@@ -16,17 +16,28 @@ import pyarrow.parquet as pq
 
 from .. import download as dl
 from ..postcode import POSTCODE_KEY
-from . import PAGE_CSS
+from . import DERIVED, PAGE_CSS, SCALE_JS
 from .interactive import _num
 
 log = logging.getLogger(__name__)
 
 
 def _postcode_table(data_dir: Path, codes: list[str], variables: dict) -> pa.Table:
-    """Live postcodes with area codes, address weights and the requested variables."""
+    """Live postcodes with area codes, address weights and the requested variables
+    (derived variables are computed from their `uses` columns)."""
+    derived = {c: DERIVED[c] for c in variables if c in DERIVED}
+    if derived:
+        base = {c: v for c, v in variables.items() if c not in derived}
+        for spec in derived.values():
+            for u in spec.get("uses", []):
+                base.setdefault(u, {"label": u})
+        t = _postcode_table(data_dir, codes, base)
+        return _add_derived(t, derived)
     lookup_f = data_dir / "collate" / "postcode_lookup.parquet"
     feat_f = data_dir / "features" / "postcode_features.parquet"
     lnames = set(pq.read_schema(lookup_f).names)
+    if any(v.get("countries") for v in variables.values()) and "ctry26cd" in lnames:
+        codes = [*codes, "ctry26cd"]
     fnames = set(pq.read_schema(feat_f).names) if feat_f.exists() else set()
     lcols = [POSTCODE_KEY, *(c for c in codes if c in lnames), *(c for c in ["uprn_count"] if c in lnames),
              *(c for c in variables if c in lnames and c not in fnames)]
@@ -39,7 +50,42 @@ def _postcode_table(data_dir: Path, codes: list[str], variables: dict) -> pa.Tab
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
         for c in ft.column_names[1:]:
             lt = lt.append_column(c, ft[c].take(idx))
-    return lt
+    return _mask_countries(lt, variables)
+
+
+def _mask_countries(t: pa.Table, variables: dict) -> pa.Table:
+    """Blank variables outside the countries their source covers (`countries: [E, W]`), e.g. drive time
+    to A&E uses CQC data for England only, so elsewhere the 'nearest' A&E would be a false long trip."""
+    if "ctry26cd" not in t.column_names:
+        return t
+    first = pc.utf8_slice_codeunits(t["ctry26cd"], 0, 1)
+    for c, spec in variables.items():
+        if spec.get("countries") and c in t.column_names:
+            keep = pc.fill_null(pc.is_in(first, value_set=pa.array([str(x) for x in spec["countries"]])), False)
+            nulls = pa.nulls(t.num_rows, t[c].type)
+            t = t.set_column(t.schema.get_field_index(c), c, pc.if_else(keep, t[c], nulls))
+    return t
+
+
+def _add_derived(t: pa.Table, derived: dict) -> pa.Table:
+    """Append derived columns: a pandas expression over `uses` columns (cast to numbers,
+    booleans to 0/1, missing values optionally filled per column with `fill`)."""
+    import pandas as pd
+    for name, spec in derived.items():
+        uses = [u for u in spec.get("uses", []) if u in t.column_names]
+        if len(uses) < len(spec.get("uses", [])):
+            log.warning("derived %s skipped: missing %s", name, sorted(set(spec["uses"]) - set(uses)))
+            continue
+        def num(col):
+            if pa.types.is_boolean(col.type) or pa.types.is_integer(col.type) or pa.types.is_floating(col.type):
+                return pc.cast(col, pa.float64()).to_pandas()
+            return pd.to_numeric(col.to_pandas(), errors="coerce").astype("float64")   # e.g. '1'..'3' classes
+        df = pd.DataFrame({u: num(t[u]) for u in uses})
+        fill = spec.get("fill") or {}
+        df = df.fillna({c: v for c, v in fill.items() if c in df}) if isinstance(fill, dict) else df.fillna(fill)
+        vals = df.eval(spec["expr"]).astype("float64")
+        t = t.append_column(name, pa.array(vals.to_numpy(), from_pandas=True))
+    return t
 
 
 def _aggregate(t: pa.Table, code_col: str, area_codes: list[str], variables: dict) -> dict:
@@ -173,11 +219,10 @@ Layouts: <a href="https://hexmap.uk">Open Innovations hexmaps</a> (MIT) and the
 <div id="tip"></div>
 <script>
 const D = __DATA__;
-const PAL = ["#440154","#46327e","#365c8d","#277f8e","#1fa187","#4ac16d","#a0da39","#fde725"];
+__SCALE__
 const lay = document.getElementById('lay'), sel = document.getElementById('var'), svg = document.getElementById('svg'), tip = document.getElementById('tip');
 D.layouts.forEach((l, i) => lay.add(new Option(l.label, i)));
 D.vars.forEach((v, i) => sel.add(new Option(v.label, i)));
-const fmt = v => v === null || v === undefined ? '–' : (typeof v === 'number' ? v.toLocaleString('en-GB') : v);
 function centres(L) {
   const s = 10, w = Math.sqrt(3) * s, h = 2 * s, pts = [];
   L.q.forEach((q, i) => { const r = L.r[i], odd = Math.abs(r) % 2 == 1;
@@ -220,22 +265,14 @@ function draw() {
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = s * 1.5;
   const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad, x1 = Math.max(...xs) + pad, y1 = Math.max(...ys) + pad;
   svg.setAttribute('viewBox', [x0, y0, x1 - x0, y1 - y0].join(' '));
-  const nums = V.filter(v => typeof v === 'number').sort((a, b) => a - b);
-  const q = p => nums[Math.min(nums.length - 1, Math.floor(p * nums.length))];
-  const breaks = nums.length ? [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))] : [];
-  const col = v => { if (typeof v !== 'number') return '#e3e3e3'; let k = 0; while (k < breaks.length && v > breaks[k]) k++;
-    return PAL[Math.round(k * (PAL.length - 1) / Math.max(breaks.length, 1))]; };
+  const S = makeScale(V, D.vars[+sel.value]), col = v => S.col(v) || '#e3e3e3';
   svg.innerHTML = ds.map((d, i) => '<path class="hex" data-i="' + i + '" d="' + d + '" fill="' + col(V[i]) + '"/>').join('') + lines;
   svg.querySelectorAll('path.hex').forEach(el => {
     el.onmousemove = e => { const i = +el.dataset.i; tip.style.display = 'block'; tip.style.left = (e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 10) + 'px';
       tip.innerHTML = '<b>' + L.name[i] + '</b><br>' + label + ': <b>' + fmt(V[i]) + '</b><br><span style="color:#777">' +
         fmt(L.postcodes[i]) + ' postcodes, ' + fmt(L.addresses[i]) + ' addresses</span>'; };
     el.onmouseleave = () => tip.style.display = 'none'; });
-  let h = '<b>' + label + '</b><br>';
-  if (nums.length) { const edges = [nums[0], ...breaks, nums[nums.length - 1]];
-    for (let k = 0; k <= breaks.length; k++) h += '<i style="background:' + PAL[Math.round(k * (PAL.length - 1) / Math.max(breaks.length, 1))] + '"></i>' + fmt(edges[k]) + ' to ' + fmt(edges[k + 1]) + '<br>'; }
-  h += '<i style="background:#e3e3e3"></i>no data<br><span style="color:#777">colours are eighths (quantiles) of the areas</span>';
-  document.getElementById('legend').innerHTML = h;
+  document.getElementById('legend').innerHTML = legendHtml(label, S, '<br><i style="background:#e3e3e3"></i>no data');
   const ranked = V.map((v, i) => [v, i]).filter(a => typeof a[0] === 'number').sort((a, b) => b[0] - a[0]);
   const li = a => '<li>' + L.name[a[1]] + ': ' + fmt(a[0]) + '</li>';
   document.getElementById('top').innerHTML = ranked.slice(0, 5).map(li).join('');
@@ -244,7 +281,7 @@ function draw() {
 // optional start view from the URL, e.g. cartograms.html#lay=3&var=0
 const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
 if (H.lay && lay.options[+H.lay]) lay.value = H.lay;
-if (H.var && sel.options[+H.var]) sel.value = H.var;
+{ const k = varIndex(D.vars, H.var); if (k !== null && sel.options[k]) sel.value = k; }
 lay.onchange = draw; sel.onchange = draw; draw();
 </script></body></html>"""
 
@@ -258,7 +295,7 @@ def build_cartograms(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
     missing = [c for c in variables if c not in found]
     if missing:
         log.warning("cartograms: columns not found, skipped: %s", missing)
-    data = {"vars": [{"label": variables[c]["label"]} for c in found], "layouts": []}
+    data = {"vars": [var_meta(c, variables[c]) for c in found], "layouts": []}
     for name, spec in layouts.items():
         if spec["code"] not in t.column_names:
             log.warning("cartograms: layout %s skipped - column %s not in the postcode lookup (run 02_collate.py)",
@@ -291,15 +328,92 @@ def build_cartograms(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
             log.info("cartograms: %s areas without postcodes (code changes?): %s", name,
                      [n for n, p in zip(names, agg["postcodes"]) if p == 0][:10])
         data["layouts"].append({
-            "label": spec.get("label", name), **shape, "name": names,
+            "id": name, "label": spec.get("label", name), **shape, "name": names,
             "postcodes": [int(v) for v in agg["postcodes"]], "addresses": [int(round(v)) for v in agg["addresses"]],
             "values": [_num(pa.chunked_array([pa.array(agg[c], from_pandas=True)])) for c in found],
         })
     if not data["layouts"]:
         log.warning("cartograms: no layouts available - nothing written")
         return None
-    page = TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__DATA__", json.dumps(data, separators=(",", ":")))
+    page = (TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__SCALE__", SCALE_JS)
+            .replace("__DATA__", json.dumps(data, separators=(",", ":"))))
     out = out_dir / "cartograms.html"
     out.write_text(page, encoding="utf-8")
     log.info("wrote   %s (%d layouts x %d variables)", out.name, len(data["layouts"]), len(found))
+    if cfg.get("small_multiples"):
+        _small_multiples(out_dir, data, cfg["small_multiples"])
+    return out
+
+
+def var_meta(col: str, spec: dict) -> dict:
+    """What the pages need to know about a variable: key, label, colour scale."""
+    m = {"key": col, "label": spec["label"]}
+    if spec.get("scale"):
+        m["scale"] = spec["scale"]
+    return m
+
+
+SM_TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoData small multiples</title><style>__CSS__
+#bar{display:flex;gap:18px;align-items:center;padding:10px 26px;background:#fff;border-bottom:1px solid #ddd}
+#grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:16px 26px}
+.panel{background:#fff;border-radius:6px;box-shadow:0 1px 3px #0002;padding:8px}
+.panel h3{font-size:13px;margin:0 0 4px} .panel svg{width:100%;height:420px}
+.legend{font-size:11px;line-height:15px} .legend i{display:inline-block;width:12px;height:10px;margin-right:4px}
+path{vector-effect:non-scaling-stroke} path.hex{stroke:#fff;stroke-width:0.3} path.hex:hover{stroke:#111;stroke-width:1.5}
+#tip{position:fixed;pointer-events:none;background:#fff;border:1px solid #bbb;border-radius:5px;padding:5px 7px;font-size:12px;display:none}
+@media (max-width:1100px){#grid{grid-template-columns:repeat(2,1fr)}}
+</style></head><body>
+<header><h1>Small multiples</h1><p>The same cartogram repeated for several variables, so patterns can be compared at a glance.
+Each panel has its own colour scale. Layouts: hexmap.uk (MIT), Ordnance Survey equal-area cartogram (OGL).
+<a href="index.html">All visualisations</a></p></header>
+<div id="bar"><label>Areas <select id="lay"></select></label></div>
+<div id="grid"></div><div id="tip"></div>
+<script>
+const D = __DATA__;
+__SCALE__
+__SHAPES__
+const lay = document.getElementById('lay'), tip = document.getElementById('tip');
+D.layouts.forEach((l, i) => lay.add(new Option(l.label, i)));
+function draw() {
+  const L = D.layouts[+lay.value], {ds, pts, s, lines} = shapes(L);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = s * 1.5;
+  const vb = [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) - Math.min(...xs) + 2 * pad, Math.max(...ys) - Math.min(...ys) + 2 * pad].join(' ');
+  const grid = document.getElementById('grid'); grid.innerHTML = '';
+  D.vars.forEach((v, k) => {
+    const V = L.values[k], S = makeScale(V, v), p = document.createElement('div'); p.className = 'panel';
+    p.innerHTML = '<h3>' + v.label + '</h3><svg viewBox="' + vb + '">' + ds.map((d, i) => '<path class="hex" data-i="' + i +
+      '" d="' + d + '" fill="' + (S.col(V[i]) || '#e3e3e3') + '"/>').join('') + lines + '</svg><div class="legend">' +
+      S.rows.map(r => '<i style="background:' + r[0] + '"></i>' + r[1]).join(' &nbsp; ') + '</div>';
+    p.querySelectorAll('path.hex').forEach(el => {
+      el.onmousemove = e => { const i = +el.dataset.i; tip.style.display = 'block'; tip.style.left = (e.clientX + 12) + 'px';
+        tip.style.top = (e.clientY + 8) + 'px'; tip.innerHTML = '<b>' + L.name[i] + '</b><br>' + v.label + ': <b>' + fmt(V[i]) + '</b>'; };
+      el.onmouseleave = () => tip.style.display = 'none'; });
+    grid.appendChild(p);
+  });
+}
+const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
+if (H.lay && lay.options[+H.lay]) lay.value = H.lay;
+lay.onchange = draw; draw();
+</script></body></html>"""
+
+
+def _small_multiples(out_dir: Path, data: dict, cfg: dict) -> Path | None:
+    """Several variables side by side on the same cartogram (shared shapes, own colour scales)."""
+    keys = [v["key"] for v in data["vars"]]
+    want = [k for k in cfg.get("variables", []) if k in keys]
+    if not want:
+        log.warning("small multiples: none of the configured variables are available")
+        return None
+    idx = [keys.index(k) for k in want]
+    layouts = [dict(L, values=[L["values"][i] for i in idx]) for L in data["layouts"]
+               if not cfg.get("layouts") or L["id"] in cfg["layouts"]]
+    sm = {"vars": [data["vars"][i] for i in idx], "layouts": layouts}
+    shapes_js = TEMPLATE[TEMPLATE.index("function centres"):TEMPLATE.index("function draw()")]
+    page = (SM_TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__SCALE__", SCALE_JS).replace("__SHAPES__", shapes_js)
+            .replace("__DATA__", json.dumps(sm, separators=(",", ":"))))
+    out = out_dir / "small_multiples.html"
+    out.write_text(page, encoding="utf-8")
+    log.info("wrote   %s (%d layouts x %d variables)", out.name, len(layouts), len(want))
     return out

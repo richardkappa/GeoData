@@ -170,6 +170,12 @@ How it stays fast and light:
 * Medians and type shares are computed with numpy sorts and `bincount` on
   integer group ids.
 
+Column descriptions come from each join's `note`; columns without one (the NSPL
+spine, energy, IMD, designations, climate ...) are described in
+`config/column_descriptions.yaml` (exact names or patterns). The NSPL entries are
+summarised from the ONS NSPL User Guide in the NSPL download. `variables.html`
+(section 4) lists every column with its description and coverage.
+
 To add a join, append an entry to `joins:` in `config/collate.yaml`. A join whose
 input file hasn't been extracted is skipped with a warning. Set
 `spine.countries: [E, W]` or `include_terminated: false` to make the table

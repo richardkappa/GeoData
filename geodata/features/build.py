@@ -39,8 +39,11 @@ class Features:
         return enforce_primary_key(t)
 
     def dictionary(self) -> pa.Table:
-        return pa.table(list(zip(*self.dict_rows)) if self.dict_rows else [[]] * 3,
-                        names=["column", "group", "note"])
+        from ..descriptions import fill
+        cols = list(zip(*self.dict_rows)) if self.dict_rows else [[]] * 3
+        if self.dict_rows:   # blank notes filled from config/column_descriptions.yaml
+            cols[2] = fill(list(cols[0]), list(cols[2]))
+        return pa.table(cols, names=["column", "group", "note"])
 
 
 def _r(r) -> str:

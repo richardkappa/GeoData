@@ -43,8 +43,11 @@ class Dictionary:
             self.rows.append((c, source, join, key, note))
 
     def table(self) -> pa.Table:
-        return pa.table(list(zip(*self.rows)) if self.rows else [[]] * 5,
-                        names=["column", "source", "join", "key", "note"])
+        from .descriptions import fill
+        cols = list(zip(*self.rows)) if self.rows else [[]] * 5
+        if self.rows:   # columns without a join note get one from config/column_descriptions.yaml
+            cols[4] = fill(list(cols[0]), list(cols[4]))
+        return pa.table(cols, names=["column", "source", "join", "key", "note"])
 
 
 # --------------------------------------------------------------------- helpers

@@ -11,7 +11,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from . import PAGE_CSS, tile_js
+from . import PAGE_CSS, SCALE_JS, tile_js
 from .cartograms import _aggregate, _postcode_table
 from .interactive import _num
 
@@ -99,22 +99,23 @@ html,body{height:100%} body{display:flex;flex-direction:column}
 and Ordnance Survey national grid squares. Boundaries: ONS Open Geography (OGL v3), simplified for the web.
 <a href="index.html">All visualisations</a></p></header>
 <div id="bar"><label>Geography <select id="geo"></select></label><label>Colour by <select id="var"></select></label>
+<label>Compare with <select id="cmp"><option value="-1">(nothing: one variable)</option></select></label>
 <label><input type="checkbox" id="empty"> show areas with no value</label>
 <label><input type="checkbox" id="bg" checked> background map</label>
 <label><input type="checkbox" id="lines" checked> boundary lines</label></div>
 <div id="map"></div>
 <script>
 const D = __DATA__;
-const PAL = ["#440154","#46327e","#365c8d","#277f8e","#1fa187","#4ac16d","#a0da39","#fde725"];
+__SCALE__
 const map = L.map('map', {preferCanvas: true}).setView([54.5, -3], 6);
 __TILES__
 const geo = document.getElementById('geo'), sel = document.getElementById('var'), empty = document.getElementById('empty');
+const cmp = document.getElementById('cmp');
 D.geos.forEach((g, i) => geo.add(new Option(g.label + ' (' + g.names.length.toLocaleString('en-GB') + ')', i)));
-D.vars.forEach((v, i) => sel.add(new Option(v.label, i)));
-const fmt = v => v === null || v === undefined ? '–' : (typeof v === 'number' ? v.toLocaleString('en-GB') : v);
-let layer = null, breaks = [];
-const colour = v => { if (typeof v !== 'number') return null; let k = 0; while (k < breaks.length && v > breaks[k]) k++;
-  return PAL[Math.round(k * (PAL.length - 1) / Math.max(breaks.length, 1))]; };
+D.vars.forEach((v, i) => { sel.add(new Option(v.label, i)); if (!v.categorical) cmp.add(new Option(v.label, i)); });
+let layer = null;
+const metaFor = (k, G) => D.vars[k].categorical ? {cats: G.cats || []} : D.vars[k];
+const show = (k, G, i) => { const v = G.values[k][i]; return D.vars[k].categorical && typeof v === 'number' ? (G.cats || [])[v] : fmt(v); };
 const legend = L.control({position: 'bottomright'});
 legend.onAdd = () => { const d = L.DomUtil.create('div', 'legend'); d.id = 'legend'; return d; };
 legend.addTo(map);
@@ -125,8 +126,10 @@ function build() {
   G.rings.forEach((rs, i) => {
     const latlngs = rs.map(r => { const a = []; for (let k = 0; k < r.length; k += 2) a.push([r[k], r[k + 1]]); return a; });
     L.polygon(latlngs, {weight: 0.4, color: '#555', fillOpacity: 0.75, _i: i})
-      .bindTooltip(() => { const V = G.values[+sel.value]; return '<b>' + G.names[i] + '</b><br>' + D.vars[+sel.value].label +
-        ': <b>' + fmt(V[i]) + '</b><br><span style="color:#777">' + fmt(G.postcodes[i]) + ' postcodes, ' + fmt(G.addresses[i]) + ' addresses</span>'; },
+      .bindTooltip(() => { const k = +sel.value, k2 = +cmp.value;
+        return '<b>' + G.names[i] + '</b><br>' + D.vars[k].label + ': <b>' + show(k, G, i) + '</b>' +
+          (k2 >= 0 ? '<br>' + D.vars[k2].label + ': <b>' + show(k2, G, i) + '</b>' : '') +
+          '<br><span style="color:#777">' + fmt(G.postcodes[i]) + ' postcodes, ' + fmt(G.addresses[i]) + ' addresses</span>'; },
         {sticky: true})
       .addTo(layer);
   });
@@ -134,34 +137,73 @@ function build() {
   recolour();
 }
 function recolour() {
-  const G = D.geos[+geo.value], V = G.values[+sel.value], label = D.vars[+sel.value].label;
-  const nums = V.filter(v => typeof v === 'number').sort((a, b) => a - b);
-  const q = p => nums[Math.min(nums.length - 1, Math.floor(p * nums.length))];
-  breaks = nums.length ? [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))] : [];
+  const G = D.geos[+geo.value], k = +sel.value, k2 = D.vars[k].categorical ? -1 : +cmp.value;
+  const V = G.values[k], label = D.vars[k].label;
+  let colourAt, legendH;
+  if (k2 >= 0) {   // bivariate: 3x3 tertiles of the two variables
+    const B = bivScale(V, G.values[k2]);
+    colourAt = i => B.col(i); legendH = bivLegendHtml(label, D.vars[k2].label);
+  } else {
+    const S = makeScale(V, metaFor(k, G));
+    colourAt = i => S.col(V[i]);
+    legendH = legendHtml(label, S, D.vars[k].categorical && !(G.cats || []).length ? '<br>not computed for this geography' : '');
+  }
   const w = document.getElementById('lines').checked ? 0.4 : 0;   // boundary lines on/off
-  layer.eachLayer(p => { const c = colour(V[p.options._i]);
+  layer.eachLayer(p => { const c = colourAt(p.options._i);
     p.setStyle(c ? {fillColor: c, fillOpacity: 0.75, opacity: 1, weight: w}
                  : {fillColor: '#bbb', fillOpacity: empty.checked ? 0.35 : 0, opacity: empty.checked ? 1 : 0, weight: w}); });
-  let h = '<b>' + label + '</b><br>';
-  if (nums.length) { const edges = [nums[0], ...breaks, nums[nums.length - 1]];
-    for (let k = 0; k <= breaks.length; k++) h += '<i style="background:' + PAL[Math.round(k * (PAL.length - 1) / Math.max(breaks.length, 1))] + '"></i>' + fmt(edges[k]) + ' to ' + fmt(edges[k + 1]) + '<br>'; }
-  h += '<span style="color:#777">eighths (quantiles) of the areas shown</span>';
-  document.getElementById('legend').innerHTML = h;
+  document.getElementById('legend').innerHTML = legendH;
 }
 let tiles = null; map.eachLayer(l => { if (l instanceof L.TileLayer) tiles = l; });
 document.getElementById('bg').onchange = e => {   // background map on/off (white page behind the areas when off)
   if (!tiles) return; if (e.target.checked) tiles.addTo(map); else map.removeLayer(tiles);
   document.getElementById('map').style.background = e.target.checked ? '' : '#fff'; };
-geo.onchange = build; sel.onchange = recolour; empty.onchange = recolour;
+geo.onchange = build; sel.onchange = recolour; empty.onchange = recolour; cmp.onchange = recolour;
 document.getElementById('lines').onchange = recolour;
-// optional start view from the URL, e.g. choropleths.html#geo=2&var=0&bg=0&lines=0
-const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
-if (H.geo && geo.options[+H.geo]) geo.value = H.geo;
-if (H.var && sel.options[+H.var]) sel.value = H.var;
+// optional start view from the URL, e.g. choropleths.html#geo=msoa&var=hp_price_1000m_w0&cmp=...&bg=0&lines=0
+const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=').map(decodeURIComponent)));
+if (H.geo) { const gi = /^[0-9]+$/.test(H.geo) ? +H.geo : D.geos.findIndex(g => g.id === H.geo); if (geo.options[gi]) geo.value = gi; }
+{ const vi = varIndex(D.vars, H.var); if (vi !== null && sel.options[vi]) sel.value = vi; }
+{ const ci = varIndex(D.vars, H.cmp); if (ci !== null) cmp.value = ci; }
 if (H.lines === '0') document.getElementById('lines').checked = false;
 build();
 if (H.bg === '0') { const b = document.getElementById('bg'); b.checked = false; b.onchange({target: b}); }
 </script></body></html>"""
+
+
+def _clusters(agg: dict, cvars: dict, k: int, label: str):
+    """k-means on standardised area averages -> (cluster code per area or None, labels).
+    Clusters are numbered by size; each label names its two most distinctive variables."""
+    from sklearn.cluster import KMeans
+    keys = [c for c in cvars if c in agg]
+    X = np.column_stack([agg[c] for c in keys]).astype("f8")
+    ok = (agg["postcodes"] > 0) & (np.isfinite(X).sum(axis=1) >= len(keys) / 2)
+    if ok.sum() < k * 3:
+        return [None] * len(X), []
+    Xo = X[ok]
+    med = np.nanmedian(Xo, axis=0)
+    Xo = np.where(np.isfinite(Xo), Xo, med)          # gaps (e.g. England-only measures) -> median
+    sd = Xo.std(axis=0)
+    Z = (Xo - Xo.mean(axis=0)) / np.where(sd > 0, sd, 1)
+    import warnings
+    with warnings.catch_warnings():   # sklearn's Windows/MKL thread warning is irrelevant for a few thousand rows
+        warnings.filterwarnings("ignore", message="KMeans is known to have a memory leak")
+        lab = KMeans(n_clusters=k, n_init=10, random_state=0).fit_predict(Z)
+    order = np.argsort(-np.bincount(lab, minlength=k))          # biggest cluster first
+    remap = np.empty(k, int)
+    remap[order] = np.arange(k)
+    lab = remap[lab]
+    cats = []
+    for c in range(k):
+        zc = Z[lab == c].mean(axis=0)
+        top = np.argsort(-np.abs(zc))[:2]
+        words = [f"{'high' if zc[j] > 0 else 'low'} {cvars[keys[j]].get('short', cvars[keys[j]]['label'])}" for j in top]
+        cats.append(f"{c + 1}: {', '.join(words)} ({int((lab == c).sum()):,} areas)")
+    codes = [None] * len(X)
+    for i, v in zip(np.flatnonzero(ok), lab):
+        codes[i] = int(v)
+    log.info("choropleths: %s - %d clusters from %d variables", label, k, len(keys))
+    return codes, cats
 
 
 def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
@@ -170,9 +212,13 @@ def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
     variables = {c: (v if isinstance(v, dict) else {"label": v}) for c, v in cfg.get("variables", {}).items()}
     bounds = cfg.get("boundaries", {})
     grids = cfg.get("grid_km", [])
-    t = _postcode_table(data_dir, [*(b["code"] for b in bounds.values()), "easting", "northing"], variables)
-    found = [c for c in variables if c in t.column_names]
-    missing = [c for c in variables if c not in found]
+    ccfg = cfg.get("clusters") or {}
+    cvars = {c: (v if isinstance(v, dict) else {"label": v}) for c, v in (ccfg.get("variables") or {}).items()}
+    agg_vars = {**cvars, **variables}   # cluster inputs are averaged too, even if not shown
+    t = _postcode_table(data_dir, [*(b["code"] for b in bounds.values()), "easting", "northing"], agg_vars)
+    missing = [c for c in agg_vars if c not in t.column_names]
+    variables, agg_vars = ({c: v for c, v in d.items() if c in t.column_names} for d in (variables, agg_vars))
+    found = list(variables)
     if missing:
         log.warning("choropleths: columns not found, skipped: %s", missing)
     geos = []
@@ -180,26 +226,39 @@ def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
         if spec["code"] not in t.column_names:
             log.warning("choropleths: %s skipped - %s not in the postcode lookup", name, spec["code"])
             continue
-        g = _boundary_geography(data_dir, spec, t, variables, to_ll)
+        g = _boundary_geography(data_dir, spec, t, agg_vars, to_ll)
         if g:
-            g["label"] = spec["label"]
+            g["label"], g["id"] = spec["label"], name
             geos.append(g)
     for km in grids:
-        g = _grid_geography(t, float(km) * 1000, variables, to_ll)
-        g["label"] = f"OS national grid, {km} km squares"
+        g = _grid_geography(t, float(km) * 1000, agg_vars, to_ll)
+        g["label"], g["id"] = f"OS national grid, {km} km squares", f"grid_{km:g}km"
         geos.append(g)
     if not geos:
         log.warning("choropleths: no geographies - nothing written")
         return None
-    data = {"vars": [{"label": variables[c]["label"]} for c in found], "geos": []}
+    from .cartograms import var_meta
+    data = {"vars": [var_meta(c, variables[c]) for c in found], "geos": []}
+    if cvars:
+        data["vars"].append({"key": "cluster", "label": ccfg.get("label", "Area type: clusters of similar areas"),
+                             "categorical": True})
     for g in geos:
         agg = g["agg"]
+        values = [_num(pa.chunked_array([pa.array(agg[c], from_pandas=True)])) for c in found]
+        cats = []
+        if cvars:
+            if g["id"] in ccfg.get("geographies", []):
+                codes, cats = _clusters(agg, cvars, int(ccfg.get("k", 8)), g["label"])
+                values.append(codes)
+            else:
+                values.append([None] * len(g["names"]))
         data["geos"].append({
-            "label": g["label"], "names": g["names"], "rings": g["rings"],
+            "id": g["id"], "label": g["label"], "names": g["names"], "rings": g["rings"], "cats": cats,
             "postcodes": [int(v) for v in agg["postcodes"]], "addresses": [int(round(v)) for v in agg["addresses"]],
-            "values": [_num(pa.chunked_array([pa.array(agg[c], from_pandas=True)])) for c in found]})
+            "values": values})
         log.info("choropleths: %s - %d areas", g["label"], len(g["names"]))
-    page = (TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__TILES__", tile_js("light", "boundaries: ONS (OGL)"))
+    page = (TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__SCALE__", SCALE_JS)
+            .replace("__TILES__", tile_js("light", "boundaries: ONS (OGL)"))
             .replace("__DATA__", json.dumps(data, separators=(",", ":"))))
     out = out_dir / "choropleths.html"
     out.write_text(page, encoding="utf-8")

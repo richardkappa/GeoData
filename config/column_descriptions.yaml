@@ -1,0 +1,117 @@
+# =============================================================================
+# Column descriptions for the data dictionaries
+# -----------------------------------------------------------------------------
+# Used by 02_collate.py and 03_features.py to describe columns whose join or
+# feature group has no note of its own. `columns` are exact names; `patterns`
+# are regular expressions tried in order ({1}, {2} ... insert the captured
+# groups, with underscores shown as spaces).
+# NSPL descriptions are summarised from the ONS "NSPL User Guide" that ships
+# in the NSPL zip (Documents/User Guide).
+# =============================================================================
+
+columns:
+  # --- ONS National Statistics Postcode Lookup (NSPL) ------------------------
+  postcode_ns: Postcode in upper case with all spaces removed (e.g. SW1A1AA); the primary key of every table
+  pcds: "Postcode as normally written: outward code, one space, inward code (e.g. SW1A 1AA)"
+  dointr: Date the postcode was introduced by Royal Mail (most recent occurrence), as YYYYMM
+  doterm: Date the postcode was terminated (most recent occurrence), as YYYYMM; empty for live postcodes
+  usrtypind: "Postcode user type: 0 = small user (ordinary addresses), 1 = large user (a single organisation receiving a lot of mail)"
+  east1m: OS national grid easting to 1 m as supplied in the NSPL (Irish grid for Northern Ireland postcodes)
+  north1m: OS national grid northing to 1 m as supplied in the NSPL (Irish grid for Northern Ireland postcodes)
+  gridind: "Grid reference quality: 1 = in the building of the address nearest the postcode mean, 2 = as 1 checked visually (Scotland), 3 = within 50 m, 4 = mean of the postcode's addresses, 5 = estimated by ONS from nearby postcodes, 6 = postcode sector mean (mainly PO boxes), 8 = terminated before 2000 (last known reference), 9 = none"
+  lat: Latitude of the postcode (decimal degrees, WGS84)
+  long: Longitude of the postcode (decimal degrees, WGS84)
+  easting: British National Grid easting (EPSG:27700, m); Northern Ireland postcodes converted from the Irish grid
+  northing: British National Grid northing (EPSG:27700, m); Northern Ireland postcodes converted from the Irish grid
+  live: True if the postcode is in use (no termination date)
+  oa21cd: 2021 Census output area (Data Zone in Northern Ireland), the smallest census geography
+  lsoa21cd: 2021 Census lower layer super output area (Data Zone in Scotland, Super Data Zone in Northern Ireland)
+  msoa21cd: 2021 Census middle layer super output area (Intermediate Zone in Scotland)
+  lad26cd: Local authority district (unitary authority, district, metropolitan district, London borough, council area)
+  wd26cd: Electoral ward or division
+  ctry26cd: Country (England, Wales, Scotland, Northern Ireland, Channel Islands, Isle of Man)
+  rgn26cd: English region (former Government Office Region); pseudo codes outside England
+  pcon24cd: Westminster parliamentary constituency (2024 boundaries)
+  npark16cd: National park (pseudo code for postcodes outside a national park)
+  bua24cd: Built-up area (2024, England and Wales); empty or pseudo code outside built-up areas
+  ruc21ind: 2021 Census rural-urban classification of the output area (England and Wales; 2022 for Scotland)
+  oac21ind: 2021 Census output area classification (OAC) - supergroup, group and subgroup code, e.g. 1a1
+  imd25ind: "Index of Multiple Deprivation rank of the postcode's LSOA (1 = most deprived); England 2025 and Wales; 0 where not available"
+  pfa23cd: Police force area
+  icb26cd: Integrated Care Board (NHS England); pseudo codes outside England
+  ttwa15cd: Travel to work area (2015 definitions from 2011 Census commuting)
+  itl25cd: International Territorial Level local area (LAU1 equivalent, former NUTS)
+  # --- names added from ONS boundaries ---------------------------------------
+  lad26nm: Local authority district name
+  msoa21nm: MSOA name (2021 Census)
+  lsoa21nm: LSOA name (2021 Census)
+  lsoa_rural_urban: Rural-urban classification of the postcode's LSOA (2021, England and Wales)
+  rgn_name: Region name (England)
+  ctry_name: Country name
+  pcon24nm: Westminster parliamentary constituency name (2024 boundaries)
+  lad19cd: Local authority district as at December 2019 (for the Ordnance Survey 2019 equal-area cartogram)
+  uprn_count: Number of addresses (UPRNs) in the postcode, from the ONS National Statistics UPRN Lookup
+  # --- DESNZ postcode energy use ---------------------------------------------
+  electricity_num_meters: Number of domestic electricity meters in the postcode (DESNZ, latest year)
+  electricity_total_cons_kwh: Total domestic electricity use in the postcode (kWh per year)
+  electricity_mean_cons_kwh: Mean domestic electricity use per meter (kWh per year)
+  electricity_median_cons_kwh: Median domestic electricity use per meter (kWh per year)
+  gas_num_meters: Number of domestic gas meters in the postcode (DESNZ, latest year)
+  gas_total_cons_kwh: Total domestic gas use in the postcode (kWh per year)
+  gas_mean_cons_kwh: Mean domestic gas use per meter (kWh per year)
+  gas_median_cons_kwh: Median domestic gas use per meter (kWh per year)
+  # --- NHS services in the postcode ------------------------------------------
+  gp_practices_count: Number of GP practices in the postcode (NHS ODS, active)
+  pharmacies_count: Number of pharmacies in the postcode (NHS ODS, active)
+  dentists_count: Number of dental practices in the postcode (NHS ODS, active)
+  nhs_sites_count: Number of NHS trust sites (hospitals, clinics) in the postcode (NHS ODS, active)
+  # --- IMD population denominators -------------------------------------------
+  imd_total_population_mid_2022: Population of the postcode's LSOA, mid-2022 (IMD 2025 denominator)
+  imd_dependent_children_aged_0_15_mid_2022: Children aged 0-15 in the LSOA, mid-2022 (IMD 2025 denominator)
+  imd_older_population_aged_60_and_over_mid_2022: People aged 60 and over in the LSOA, mid-2022 (IMD 2025 denominator)
+  imd_working_age_population_18_66_for_use_with_employment_deprivation_domain_mid_2022: Working-age population (18-66) of the LSOA, mid-2022 (employment domain denominator)
+  # --- designations and land -------------------------------------------------
+  aonb_name: Name of the National Landscape (Area of Outstanding Natural Beauty) the postcode is in (England)
+  national_park_name: Name of the national park the postcode is in
+  conservation_area_name: Name of the conservation area the postcode is in (England)
+  bua_name: Name of the OS built-up area the postcode is in
+  bua_hectares: Area of that built-up area (hectares)
+  in_ancient_woodland: True if the postcode is in ancient woodland (Natural England inventory)
+  in_local_nature_reserve: True if the postcode is in a local nature reserve (England)
+  in_country_park: True if the postcode is in a country park (England)
+  in_heritage_coast: True if the postcode is on a defined heritage coast (England)
+  in_national_park: True if the postcode is in a national park
+  in_conservation_area: True if the postcode is in a conservation area (England)
+  in_world_heritage_site: True if the postcode is in a World Heritage Site (England)
+  in_registered_park_garden: True if the postcode is in a registered historic park or garden (England)
+  radon_class: "Radon potential class of the 1 km square (BGS/UKHSA): 1 = under 1% of homes above the action level ... 6 = 30% or more"
+  # --- Met Office 1991-2020 averages (Climate Data Portal) -------------------
+  clim_airfrost_days: Days per year with air frost, 1991-2020 average (Met Office)
+  clim_icing_days: Days per year that stay below 0 °C, 1991-2020 average
+  clim_summer_days: Days per year above 25 °C, 1991-2020 average
+  clim_rain_days_10mm: Days per year with 10 mm or more rain, 1991-2020 average
+  clim_precip_mm: Annual rainfall (mm), 1991-2020 average (12 km grid)
+  clim_mean_temp_c: Mean annual temperature (°C), 1991-2020 average (12 km grid)
+  clim_max_temp_c: Mean daily maximum temperature (°C), 1991-2020 average (12 km grid)
+  clim_min_temp_c: Mean daily minimum temperature (°C), 1991-2020 average (12 km grid)
+
+patterns:
+  # --- English Indices of Deprivation 2025 (LSOA) ----------------------------
+  - ['^imd_index_of_multiple_deprivation_imd_score$', 'Index of Multiple Deprivation 2025 score of the LSOA (higher = more deprived; England)']
+  - ['^imd_index_of_multiple_deprivation_imd_rank$', 'Index of Multiple Deprivation 2025 rank of the LSOA (1 = most deprived of 33,755; England)']
+  - ['^imd_index_of_multiple_deprivation_imd_decile$', 'Index of Multiple Deprivation 2025 decile (1 = most deprived 10% of LSOAs; England)']
+  - ['^imd_(.+?)_score_rate$', 'IMD 2025 {1} domain: share of people affected in the LSOA (England)']
+  - ['^imd_(.+?)_score$', 'IMD 2025 {1} score of the LSOA (higher = more deprived; England)']
+  - ['^imd_(.+?)_rank$', 'IMD 2025 {1} rank of the LSOA (1 = most deprived; England)']
+  - ['^imd_(.+?)_decile$', 'IMD 2025 {1} decile (1 = most deprived 10% of LSOAs; England)']
+  # --- polygon flags ----------------------------------------------------------
+  - ['^in_aonb$', 'True if the postcode is inside a National Landscape (AONB, England)']
+  - ['^in_sssi$', 'True if the postcode is inside a Site of Special Scientific Interest (England)']
+  - ['^in_built_up_area$', 'True if the postcode is inside an OS built-up area']
+  - ['^in_(.+)$', 'True if the postcode is inside a {1} (England)']
+  # --- crime trends (03_features.py, police data by LSOA) --------------------
+  - ['^crime_change_12m_total$', 'Change in all recorded crime in the LSOA: latest 12 months against the 12 months before, as a fraction (0.10 = 10% more; +1 added to both counts so small numbers do not swing wildly)']
+  - ['^crime_change_12m_(.+)$', 'Change in {1} in the LSOA: latest 12 months against the 12 months before, as a fraction (0.10 = 10% more; +1 added to both counts so small numbers do not swing wildly)']
+  - ['^crime_peak_3m_share$', 'Share of the LSOA''s last 12 months of crime that fell in its busiest 3 consecutive months (0.25 = spread evenly, higher = seasonal or one-off spikes)']
+  # --- BGS GeoSure 5 km hexes ------------------------------------------------
+  - ['^geosure_(.+)$', 'BGS GeoSure ground stability hazard for {1}: 1 = low, 2 = moderate, 3 = significant (5 km hexagon, GB)']

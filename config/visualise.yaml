@@ -19,6 +19,39 @@ global:
     light:   {url: 'https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key={key}', key_env: CARTO_API_KEY,
               attribution: '&copy; OpenStreetMap contributors &copy; CARTO', max_zoom: 19, fallback: esri_light}
 
+# --- derived postcode variables -----------------------------------------------
+# Computed per postcode (pandas expression over `uses`) before area averages;
+# `fill` gives values for missing inputs. Usable anywhere a variable is listed.
+derived:
+  temp_anomaly_c:
+    expr: climate_temp_mean_c_avg - clim_mean_temp_c
+    uses: [climate_temp_mean_c_avg, clim_mean_temp_c]
+  rain_anomaly:
+    expr: climate_rainfall_mm_avg / clim_precip_mm - 1
+    uses: [climate_rainfall_mm_avg, clim_precip_mm]
+  risk_index:     # 0-5: each component scaled to 0-1
+    expr: (radon_class - 1) / 5 + (geosure_shrink_swell - 1) / 2 + (geosure_landslides - 1) / 2 + low_lying_near_river + (flood_high_cnt > 0)
+    uses: [radon_class, geosure_shrink_swell, geosure_landslides, low_lying_near_river, flood_high_cnt]
+    fill: {flood_high_cnt: 0, low_lying_near_river: 0}
+
+# --- featured maps on the index page (links straight to a view) ---------------
+featured:
+  - {title: House prices against deprivation, href: 'choropleths.html#geo=msoa&var=hp_price_1000m_w0&cmp=imd_index_of_multiple_deprivation_imd_score&bg=0',
+     text: 'Bivariate map: where prices are high despite deprivation, or low without it'}
+  - {title: Five-year house price change, href: 'choropleths.html#geo=local_authorities&var=hp_change_1000m_w0_vs_w5',
+     text: Change map centred on zero (blue = fall, red = rise)}
+  - {title: Climate change since 1991-2020, href: 'choropleths.html#geo=grid_10km&var=temp_anomaly_c&bg=0&lines=0',
+     text: 2023-25 temperatures against the 1991-2020 averages on 10 km squares}
+  - {title: Drive time to A&E, href: 'choropleths.html#geo=grid_5km&var=drive_hospitals_ae_min&lines=0',
+     text: Access to emergency care over the road network}
+  - {title: Crime per 1,000 residents, href: 'cartograms.html#lay=4&var=crimes_per_1000_residents_1km',
+     text: Hot spots adjusted for population, MSOA hexes}
+  - {title: Similar places, href: 'choropleths.html#geo=msoa&var=cluster&bg=0',
+     text: MSOAs grouped into 8 types by price, deprivation, crime, urbanness, access and climate}
+  - {title: Environmental risk, href: 'choropleths.html#geo=grid_5km&var=risk_index&lines=0',
+     text: Radon, ground stability, low-lying land by rivers and flood risk combined}
+  - {title: Small multiples, href: small_multiples.html, text: Nine variables side by side on the same cartogram}
+
 # --- key locations ----------------------------------------------------------
 # Either `xy: [easting, northing]` (British National Grid) or `postcode:`
 # (looked up in the NSPL). The first 16 come from the original project.
@@ -131,28 +164,58 @@ cartograms:
       name_col: n
       scale: 0.001           # GeoJSON units -> drawing units
       code: msoa21cd
+  # label, or {label, scale: diverging (change maps, centred on 0), agg: sum}
   variables: &area_variables
+    # people, prices, deprivation
     hp_price_1000m_w0:                            Typical house price, latest 12 months (£)
-    hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
     imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England)
-    crimes_per_1000_residents_1km:                Crimes within 1 km per 1,000 residents
+    uprn_count:                                   {label: Addresses, agg: sum}
+    # change maps (blue = fall, red = rise)
+    hp_change_1000m_w0_vs_w1:                     {label: House price change over 1 year (fraction), scale: diverging}
+    hp_change_1000m_w0_vs_w3:                     {label: House price change over 3 years (fraction), scale: diverging}
+    hp_change_1000m_w0_vs_w5:                     {label: House price change over 5 years (fraction), scale: diverging}
+    crime_change_12m_total:                       {label: Change in recorded crime, latest 12 months vs previous 12 (fraction), scale: diverging}
+    climate_temp_change_2025_c:                   {label: 2025 mean temperature vs 2023-24 (°C), scale: diverging}
+    temp_anomaly_c:                               {label: 'Climate change: 2023-25 mean temperature vs 1991-2020 (°C)', scale: diverging}
+    rain_anomaly:                                 {label: 'Climate change: 2023-25 rainfall vs 1991-2020 (fraction)', scale: diverging}
+    # hot spots adjusted for population
+    crimes_per_1000_residents_1km:                {label: Crimes within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
+    violent_crime_per_1000_residents_1km:         Violent crime within 1 km per 1,000 residents
+    burglary_per_100_households_1km:              Burglaries within 1 km per 100 households
+    collisions_per_1000_residents_1km:            {label: Road collisions within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
+    takeaways_per_10000_residents_1km:            Takeaways within 1 km per 10,000 residents
+    # travel times (access)
+    walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
+    walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
+    walk_supermarkets_min:                        Walking time to nearest supermarket (minutes)
+    walk_secondary_schools_min:                   {label: Walking time to nearest secondary school (minutes; England), countries: [E]}
+    drive_hospitals_ae_min:                       {label: Drive time to nearest A&E (minutes; England), countries: [E]}
+    drive_motorway_junctions_min:                 {label: Drive time to nearest motorway junction (minutes; Great Britain), countries: [E, W, S]}
+    # connectivity and energy
     bb_gigabit_availability_premises:             Gigabit broadband available (% premises)
     bb_of_premises_below_the_uso:                 Premises below the broadband USO (%)
     mob_4g_indoor_all_operators_pct:              Indoor 4G from all operators (% premises)
     mob_5g_outdoor_any_operator_pct:              Outdoor 5G from any operator (% premises)
     gas_median_cons_kwh:                          Median household gas use (kWh / year)
     electricity_median_cons_kwh:                  Median household electricity use (kWh / year)
-    walk_rail_stations_min:                       Walking time to nearest railway station (minutes)
-    walk_gp_practices_min:                        Walking time to nearest GP practice (minutes)
-    drive_hospitals_ae_min:                       Drive time to nearest A&E (minutes)
+    # environment and risk
+    risk_index:                                   'Environmental risk index (0-5: radon, shrink-swell, landslide, low-lying by a river, high flood risk)'
+    flood_high_cnt:                               Properties at high flood risk (EA, England)
+    radon_class:                                  Radon potential class (1-6)
     dist_coast_m:                                 Distance to the coast (m)
+    elevation_m:                                  Height above sea level (m)
+    share_greenspace_500m:                        Greenspace within 500 m (share of area)
+    # climate
     climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)
     climate_sunshine_hours_avg:                   Annual sunshine, 2023-25 average (hours)
     climate_temp_mean_c_avg:                      Mean temperature, 2023-25 average (°C)
     climate_snow_lying_days_avg:                  Days with snow lying, 2023-25 average
-    elevation_m:                                  Height above sea level (m)
-    flood_high_cnt:                               Properties at high flood risk (EA, England)
-    uprn_count:                                   {label: Addresses, agg: sum}
+  # several variables side by side on the same cartogram (small_multiples.html)
+  small_multiples:
+    layouts: [local_authorities, constituencies, msoa]
+    variables: [hp_price_1000m_w0, hp_change_1000m_w0_vs_w5, imd_index_of_multiple_deprivation_imd_score,
+                crimes_per_1000_residents_1km, bb_gigabit_availability_premises, drive_hospitals_ae_min,
+                temp_anomaly_c, risk_index, climate_rainfall_mm_avg]
 
 # --- geographic choropleths ---------------------------------------------------
 # The same variables averaged to real boundaries (ONS Open Geography, already
@@ -167,6 +230,23 @@ choropleths:
                         key: msoa21cd, name_col: msoa21nm, code: msoa21cd, simplify_m: 40}
   grid_km: [2.5, 5, 10, 25, 50]   # OS national grid squares built from postcode coordinates
   variables: *area_variables
+  # "similar places": k-means clusters of areas on these (standardised) averages,
+  # each cluster labelled by its two most distinctive variables (`short` names)
+  clusters:
+    label: 'Area type: clusters of similar areas'
+    geographies: [msoa, local_authorities, constituencies]
+    k: 8
+    variables:
+      hp_price_1000m_w0:                           {label: house price, short: house prices}
+      imd_index_of_multiple_deprivation_imd_score: {label: deprivation, short: deprivation}
+      crimes_per_1000_residents_1km:               {label: crime rate, short: crime, countries: [E, W]}
+      share_built_up_2km:                          {label: built-up share, short: urban}
+      bb_gigabit_availability_premises:            {label: gigabit broadband, short: gigabit broadband}
+      walk_rail_stations_min:                      {label: walk to station, short: walk to station, countries: [E, W, S]}
+      drive_hospitals_ae_min:                      {label: drive to A&E, short: drive to A&E, countries: [E]}
+      climate_rainfall_mm_avg:                     {label: rainfall, short: rainfall}
+      elevation_m:                                 {label: elevation, short: elevation}
+      gas_median_cons_kwh:                         {label: gas use, short: gas use}
 
 # --- heat maps ----------------------------------------------------------------
 # Point datasets named in config/features.yaml (`points:`), counted in national
@@ -204,11 +284,11 @@ interactive:
     hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
     lr_median_price:                              Median sale price in the postcode (£)
     imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England; higher = more deprived)
-    crimes_per_1000_residents_1km:                Crimes within 1 km per 1,000 residents
+    crimes_per_1000_residents_1km:                {label: Crimes within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
     bb_gigabit_availability_premises:             Gigabit broadband available (% of premises)
     gas_median_cons_kwh:                          Median household gas use (kWh / year)
-    walk_rail_stations_min:                       Walking time to nearest railway station (minutes)
-    walk_gp_practices_min:                        Walking time to nearest GP practice (minutes)
+    walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
+    walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
     dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
     dist_coast_m:                                 Distance to the coast (m)
     climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)

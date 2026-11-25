@@ -95,6 +95,66 @@ def tile_js(kind: str = "streets", extra_attribution: str = "") -> str:
             f"attribution: {json.dumps(attr)}}}).addTo(map);")
 
 
+# Derived postcode variables {name: {expr, uses, fill}}, set from `derived:` in
+# config/visualise.yaml by 04_visualise.py; computed before area averages.
+DERIVED: dict = {}
+
+# Colour scales shared by the cartogram, choropleth and small-multiple pages.
+# meta = {scale: 'quantile' (default) | 'diverging', cats: [labels] for categories}
+SCALE_JS = r"""
+const PAL = ["#440154","#46327e","#365c8d","#277f8e","#1fa187","#4ac16d","#a0da39","#fde725"];
+const DIV = ["#2166ac","#4393c3","#92c5de","#d1e5f0","#fddbc7","#f4a582","#d6604d","#b2182b"];
+const CAT = ["#1b9e77","#d95f02","#7570b3","#e7298a","#66a61e","#e6ab02","#a6761d","#1f78b4","#b15928","#666666"];
+const BIV = ["#e8e8e8","#ace4e4","#5ac8c8","#dfb0d6","#a5add3","#5698b9","#be64ac","#8c62aa","#3b4994"];
+const fmt = v => v === null || v === undefined ? '–' : (typeof v === 'number' ? v.toLocaleString('en-GB') : v);
+function makeScale(vals, meta) {
+  meta = meta || {};
+  if (meta.cats) {   // categories (e.g. clusters): integer codes -> labels
+    return {col: v => (typeof v === 'number') ? CAT[v % CAT.length] : null, n: vals.filter(v => typeof v === 'number').length,
+            rows: meta.cats.map((c, i) => [CAT[i % CAT.length], c]), note: ''};
+  }
+  const nums = vals.filter(v => typeof v === 'number').sort((a, b) => a - b);
+  const q = p => nums[Math.min(nums.length - 1, Math.max(0, Math.floor(p * nums.length)))];
+  if (!nums.length) return {col: () => null, rows: [], n: 0, note: 'no values'};
+  if (meta.scale === 'diverging') {   // symmetric around 0: blue = fall, red = rise
+    const m = Math.max(Math.abs(q(0.05)), Math.abs(q(0.95))) || 1;
+    const br = [-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75].map(f => f * m);
+    const col = v => { if (typeof v !== 'number') return null; let k = 0; while (k < br.length && v > br[k]) k++; return DIV[k]; };
+    const r = x => +x.toPrecision(2);
+    const rows = DIV.map((c, k) => [c, k === 0 ? 'below ' + fmt(r(br[0])) : k === 7 ? 'above ' + fmt(r(br[6])) : fmt(r(br[k - 1])) + ' to ' + fmt(r(br[k]))]);
+    return {col, rows, n: nums.length, note: 'blue = fall, red = rise; centred on zero'};
+  }
+  const br = [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))];
+  const idx = k => Math.round(k * (PAL.length - 1) / Math.max(br.length, 1));
+  const col = v => { if (typeof v !== 'number') return null; let k = 0; while (k < br.length && v > br[k]) k++; return PAL[idx(k)]; };
+  const e = [nums[0], ...br, nums[nums.length - 1]];
+  const rows = []; for (let k = 0; k <= br.length; k++) rows.push([PAL[idx(k)], fmt(e[k]) + ' to ' + fmt(e[k + 1])]);
+  return {col, rows, n: nums.length, note: 'eighths (quantiles) of the areas'};
+}
+function bivScale(a, b) {   // two variables -> 3x3 tertile colours
+  const t = vals => { const n = vals.filter(v => typeof v === 'number').sort((x, y) => x - y);
+    return n.length ? [n[Math.floor(n.length / 3)], n[Math.floor(2 * n.length / 3)]] : [0, 0]; };
+  const ta = t(a), tb = t(b), cls = (v, tt) => v <= tt[0] ? 0 : v <= tt[1] ? 1 : 2;
+  return {col: i => (typeof a[i] === 'number' && typeof b[i] === 'number') ? BIV[cls(a[i], ta) + 3 * cls(b[i], tb)] : null};
+}
+function legendHtml(title, s, extra) {
+  let h = '<b>' + title + '</b><br>';
+  s.rows.forEach(r => h += '<i style="background:' + r[0] + '"></i>' + r[1] + '<br>');
+  return h + (s.note ? '<span style="color:#777">' + s.note + '</span>' : '') + (extra || '');
+}
+function bivLegendHtml(la, lb) {
+  let g = '<div style="display:grid;grid-template-columns:repeat(3,18px);gap:1px;transform:rotate(0deg)">';
+  for (let y = 2; y >= 0; y--) for (let x = 0; x < 3; x++) g += '<div style="width:18px;height:18px;background:' + BIV[x + 3 * y] + '"></div>';
+  return '<b>Two variables</b><div style="display:flex;gap:8px;align-items:center;margin:4px 0">' + g + '</div>' +
+    '<div style="font-size:11px">&rarr; ' + la + ' (low to high)<br>&uarr; ' + lb + ' (low to high)</div>' +
+    '<span style="color:#777">thirds (tertiles) of each</span>';
+}
+function varIndex(list, v) {   // URL hash value: an index or a variable key
+  if (v === undefined) return null; if (/^\d+$/.test(v)) return +v;
+  const i = list.findIndex(x => x.key === v); return i < 0 ? null : i;
+}
+"""
+
 PAGE_CSS = """
 body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;margin:0;background:#f6f6f3;color:#222}
 header{padding:18px 26px;background:#24343f;color:#fff}
