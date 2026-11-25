@@ -540,6 +540,17 @@ def run_neighbours(F: Features, cfg, data_dir, full, pop, crime_tab):
     gdf = gdf.dropna(subset=[key]).drop_duplicates(key).reset_index(drop=True)
     codes = pa.array(gdf[key].astype(str).to_numpy())
     A = adjacency.contiguity(gdf.geometry.values, nb.get("tolerance_m", 1.0))
+    br = nb.get("bridges") or {}
+    if br.get("roads"):   # areas across rivers/estuaries joined by a road count as neighbours too
+        rp = data_dir / "extract" / br["roads"]
+        if rp.exists():
+            import geopandas as gpd
+            roads = gpd.read_parquet(rp, columns=["geometry"]).geometry.values
+            B, _ = adjacency.road_bridges(gdf.geometry.values, roads, A)
+            A = (A + B).tocsr()
+            A.data[:] = 1.0
+        else:
+            log.warning("neighbours: bridges skipped - %s missing", br["roads"])
     lp = area_population(full, key, pop.get("residents", np.ones(len(full.x))))
     w = pc.fill_null(lp["pop"].take(pc.index_in(codes, value_set=lp[key])), 0).to_numpy()
     # variables at area level

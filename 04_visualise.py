@@ -29,7 +29,7 @@ import yaml
 from geodata.config import REPO_ROOT
 from geodata.viz import PAGE_CSS, label, resolve_locations
 
-STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "variables")
+STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "networks", "variables")
 
 
 def main(argv=None) -> int:
@@ -75,6 +75,9 @@ def main(argv=None) -> int:
     if "heatmaps" in steps and cfg.get("heatmaps"):
         from geodata.viz.heatmaps import build_heatmaps
         build_heatmaps(data_dir, out_dir, cfg["heatmaps"])
+    if "networks" in steps and cfg.get("networks"):
+        from geodata.viz.networks import build_networks
+        build_networks(data_dir, out_dir, locs, cfg["networks"])
     if "variables" in steps:
         from geodata.viz.variables import build_variables
         build_variables(data_dir, out_dir)
@@ -95,6 +98,9 @@ def main(argv=None) -> int:
     if (out_dir / "small_multiples.html").exists():
         links.append('<li><a href="small_multiples.html">Small multiples</a>: nine variables side by side on the same '
                      'cartogram</li>')
+    if (out_dir / "network_explorer.html").exists():
+        links.append('<li><a href="network_explorer.html">Network explorer</a>: road centrality, walking and driving '
+                     'time, route to the nearest station, junction graph, LSOA neighbour network with bridges</li>')
     if (out_dir / "heatmaps.html").exists():
         links.append('<li><a href="heatmaps.html">Heat maps</a>: where things are concentrated (crime, collisions, '
                      'listed buildings, food outlets, house sales...)</li>')

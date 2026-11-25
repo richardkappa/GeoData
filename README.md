@@ -217,8 +217,21 @@ Writes self-contained HTML pages to `<data_dir>/viz/`; open `index.html`.
   and 50 km, labelled with their grid reference. The background map can be
   switched off.
 
+* **Network explorer** (`network_explorer.html`): for every key location, road
+  centrality (which roads carry the shortest routes across the square), walking
+  and driving time from the centre, the shortest walk to the nearest railway
+  station, the major road junction graph (A roads and motorways with degree-2
+  nodes removed), and the LSOA neighbour network with road "bridges" across
+  rivers and the rings within 1, 2 and 3 boundaries used for spatial smoothing.
+* **Heat maps**, **small multiples** and a searchable **variables** page; the
+  index has links straight to featured views.
+
 Locations can be given as BNG coordinates or as a postcode. The layers, styles,
 areas, layouts and variables are all set in `config/visualise.yaml`.
+
+Section 3's LSOA neighbourhood averages use the same network: areas that touch,
+plus areas joined by a road that crosses a gap between them (a bridge or tunnel
+over a river or estuary), as in the "Building Bridges" approach.
 
 **Background maps.** The pages are opened as local files, which OpenStreetMap's
 own tile servers refuse. CARTO tiles are used when the environment variable

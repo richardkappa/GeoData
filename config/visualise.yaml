@@ -51,6 +51,12 @@ featured:
   - {title: Environmental risk, href: 'choropleths.html#geo=grid_5km&var=risk_index&lines=0',
      text: Radon, ground stability, low-lying land by rivers and flood risk combined}
   - {title: Small multiples, href: small_multiples.html, text: Nine variables side by side on the same cartogram}
+  - {title: Through-routes of central London, href: 'network_explorer.html#loc=St_Pauls&view=btw',
+     text: Road centrality - which roads carry the shortest routes across the square}
+  - {title: Bridges across the Thames, href: 'network_explorer.html#loc=St_Pauls&view=lsoa',
+     text: The LSOA neighbour network with road bridges joining areas across the river}
+  - {title: 15-minute walk from Bath Abbey, href: 'network_explorer.html#loc=Bath&view=walk',
+     text: Walking time over the street network}
 
 # --- key locations ----------------------------------------------------------
 # Either `xy: [easting, northing]` (British National Grid) or `postcode:`
@@ -247,6 +253,20 @@ choropleths:
       climate_rainfall_mm_avg:                     {label: rainfall, short: rainfall}
       elevation_m:                                 {label: elevation, short: elevation}
       gas_median_cons_kwh:                         {label: gas use, short: gas use}
+
+# --- network explorer -------------------------------------------------------
+# Road and area networks around every location (network_explorer.html)
+networks:
+  size_m: 5000
+  route_pad_m: 1500            # roads this far beyond the square are used for routing
+  betweenness_sources: 200     # sampled start points for road centrality
+  walk_kmh: 4.8
+  speeds_kmh: {}               # override drive speeds by road class, e.g. {A Road: 60}
+  roads: os_open/openroads__road_link.parquet
+  # the generalised LSOAs (same as the features' neighbour averages) are clipped to the
+  # coast and the larger rivers, so areas across the Thames do not touch and the road
+  # "bridges" show; the full-resolution file extends to mid-river so every bank touches
+  lsoa: ons_boundaries/lsoa21.parquet
 
 # --- heat maps ----------------------------------------------------------------
 # Point datasets named in config/features.yaml (`points:`), counted in national

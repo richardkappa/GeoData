@@ -177,5 +177,8 @@ neighbours:
   key: lsoa21cd
   steps: [1, 2, 5]
   tolerance_m: 1
+  # "bridges": LSOAs that do not touch (across a river or estuary) but are joined by a
+  # road link count as neighbours too
+  bridges: {roads: os_open/openroads__road_link.parquet}
   lookup_columns: [imd_index_of_multiple_deprivation_imd_score, imd_income_score_rate,
                    imd_living_environment_score]
