@@ -165,8 +165,32 @@ choropleths:
                         key: lad26cd, name_col: lad26nm, code: lad26cd, simplify_m: 150}
     msoa:              {label: MSOAs (England and Wales), file: ons_boundaries/msoa21.parquet,
                         key: msoa21cd, name_col: msoa21nm, code: msoa21cd, simplify_m: 40}
-  grid_km: [5, 10, 25, 50]   # OS national grid squares built from postcode coordinates
+  grid_km: [2.5, 5, 10, 25, 50]   # OS national grid squares built from postcode coordinates
   variables: *area_variables
+
+# --- heat maps ----------------------------------------------------------------
+# Point datasets named in config/features.yaml (`points:`), counted in national
+# grid cells and drawn as a heat layer. name: label | {label, note}
+heatmaps:
+  cell_m: 500
+  datasets:
+    crimes:            {label: All recorded crime, note: police street-level crime over the extracted period}
+    burglary:          Burglary
+    antisocial:        Anti-social behaviour
+    vehicle_crime:     Vehicle crime
+    stop_search:       Stop and search
+    collisions:        {label: Road collisions, note: STATS19 collisions over the extracted years}
+    collisions_ksi:    Road collisions - fatal or serious
+    listed_buildings:  Listed buildings (England)
+    property_sales:    {label: House sales, note: Land Registry sales over the extracted period}
+    takeaways:         Takeaways and sandwich shops
+    pubs_bars:         Pubs, bars and nightclubs
+    restaurants_cafes: Restaurants and cafes
+    supermarkets:      Supermarkets
+    schools:           Schools
+    gp_practices:      GP practices
+    care_homes:        Care homes
+    bus_stops:         Bus stops
 
 # --- interactive feature explorer -------------------------------------------
 # One HTML page per area: every postcode in the square as a dot on a street

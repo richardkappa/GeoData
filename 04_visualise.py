@@ -29,7 +29,7 @@ import yaml
 from geodata.config import REPO_ROOT
 from geodata.viz import PAGE_CSS, label, resolve_locations
 
-STEPS = ("minimaps", "interactive", "cartograms", "choropleths")
+STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "variables")
 
 
 def main(argv=None) -> int:
@@ -71,6 +71,12 @@ def main(argv=None) -> int:
     if "choropleths" in steps and cfg.get("choropleths"):
         from geodata.viz.choropleths import build_choropleths
         build_choropleths(data_dir, out_dir, cfg["choropleths"])
+    if "heatmaps" in steps and cfg.get("heatmaps"):
+        from geodata.viz.heatmaps import build_heatmaps
+        build_heatmaps(data_dir, out_dir, cfg["heatmaps"])
+    if "variables" in steps:
+        from geodata.viz.variables import build_variables
+        build_variables(data_dir, out_dir)
 
     # index of whatever pages exist
     links = []
@@ -85,6 +91,12 @@ def main(argv=None) -> int:
     if (out_dir / "choropleths.html").exists():
         links.append('<li><a href="choropleths.html">Choropleth maps</a>: constituencies, local authorities, MSOAs '
                      'and OS national grid squares (5, 10, 25, 50 km) on a street map</li>')
+    if (out_dir / "heatmaps.html").exists():
+        links.append('<li><a href="heatmaps.html">Heat maps</a>: where things are concentrated (crime, collisions, '
+                     'listed buildings, food outlets, house sales...)</li>')
+    if (out_dir / "variables.html").exists():
+        links.append('<li><a href="variables.html">Variables</a>: every column in the postcode lookup and features, '
+                     'with descriptions and coverage</li>')
     inter = sorted(out_dir.glob("interactive_*.html"))
     if inter:
         items = "".join(f'<li><a href="{p.name}">{label(p.stem.removeprefix("interactive_"))}</a></li>' for p in inter)
