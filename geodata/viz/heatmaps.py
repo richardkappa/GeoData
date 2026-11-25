@@ -26,6 +26,7 @@ TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 html,body{height:100%} body{display:flex;flex-direction:column}
 #bar{display:flex;gap:18px;align-items:center;padding:10px 26px;background:#fff;border-bottom:1px solid #ddd;flex-wrap:wrap}
 #bar select{font-size:14px;padding:4px} #map{flex:1}
+#help{padding:6px 26px 8px;background:#fafaf7;border-bottom:1px solid #e5e5e5;font-size:13px;color:#444;line-height:1.45}
 .legend{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;width:200px}
 .bar{height:10px;border-radius:3px;background:linear-gradient(90deg,#2b83ba,#abdda4,#ffffbf,#fdae61,#d7191c)}
 </style></head><body>
@@ -33,10 +34,13 @@ html,body{height:100%} body{display:flex;flex-direction:column}
 colour shows how many fall nearby, relative to the busiest places in view on the scale chosen.
 <a href="index.html">All visualisations</a></p></header>
 <div id="bar"><label>Show <select id="ds"></select></label>
-<label>Hot spot level <select id="mx"><option value="0.99">top 1% of cells</option><option value="0.95" selected>top 5%</option>
+<label title="Which cells count as full heat (red). Lower settings make more places look hot.">Hot spot level
+<select id="mx"><option value="0.99">top 1% of cells</option><option value="0.95" selected>top 5%</option>
 <option value="0.8">top 20%</option></select></label>
-<label>Spread <select id="rad"><option value="10">tight</option><option value="18" selected>medium</option><option value="30">wide</option></select></label>
+<label title="How far each cell's heat is smeared on screen. Wider merges nearby places into bigger blobs.">Spread
+<select id="rad"><option value="10">tight</option><option value="18" selected>medium</option><option value="30">wide</option></select></label>
 <label><input type="checkbox" id="bg" checked> background map</label><span id="note"></span></div>
+<div id="help"></div>
 <div id="map"></div>
 <script>
 const M = __META__;
@@ -63,12 +67,26 @@ function draw() {
     '+ per cell</span></div><span style="color:#777">' + meta.note + '</span>';
   document.getElementById('note').textContent = D.pts.length.toLocaleString('en-GB') + ' occupied cells';
 }
+function help() {   // plain-English explanation of the two controls, kept in step with the choices
+  const px = +rad.value, mPerPx = 40075016 * Math.cos(map.getCenter().lat * Math.PI / 180) / Math.pow(2, map.getZoom() + 8);
+  const km = px * mPerPx / 1000, kmTxt = km >= 10 ? Math.round(km) : km >= 1 ? km.toFixed(1) : km.toFixed(2);
+  const lvl = {0.99: 'the busiest 1%', 0.95: 'the busiest 5%', 0.8: 'the busiest 20%'}[mx.value];
+  document.getElementById('help').innerHTML =
+    '<b>Spread</b> is how far each cell\\'s heat is smeared out: every __CELL__ m cell is drawn as a soft blob reaching ' + px +
+    ' pixels from its centre, which at this zoom is about <b>' + kmTxt + ' km</b> on the ground. Places closer together than that ' +
+    'merge into one hot spot, so <i>tight</i> shows individual streets and estates (zoom in), <i>wide</i> shows the broad ' +
+    'pattern across a region. Because the blob is a fixed size on screen, it covers less ground as you zoom in. ' +
+    '<b>Hot spot level</b> sets what counts as full heat (red): cells in ' + lvl + ' and anything nearby adding up to as ' +
+    'much; a lower level makes more places look hot.';
+}
+map.on('zoomend', help);
 function load() {
   if (window.HEAT[ds.value]) return draw();
   const s = document.createElement('script'); s.src = 'heat_data/' + ds.value + '.js'; s.onload = draw;
   s.onerror = () => alert('Could not load heat_data/' + ds.value + '.js - run 04_visualise.py'); document.body.appendChild(s);
 }
-ds.onchange = load; mx.onchange = draw; rad.onchange = draw;
+ds.onchange = load; mx.onchange = () => { draw(); help(); }; rad.onchange = () => { draw(); help(); };
+help();
 document.getElementById('bg').onchange = e => { if (tiles) e.target.checked ? tiles.addTo(map) : map.removeLayer(tiles); };
 const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=')));
 if (H.ds && M.datasets.some(d => d.name === H.ds)) ds.value = H.ds;
