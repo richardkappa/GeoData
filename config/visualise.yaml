@@ -9,6 +9,7 @@
 global:
   data_dir: data
   output_dir: viz            # under data_dir (git-ignored)
+  repo_url: https://github.com/richardkappa/GeoData   # linked from every page header
   # Background tiles for the street maps. The pages are local files: OpenStreetMap's own
   # tile servers refuse them and CARTO needs an API key. CARTO is used when the
   # environment variable CARTO_API_KEY is set (free key: carto.com/basemaps/apikey; never
@@ -18,6 +19,25 @@ global:
               attribution: '&copy; OpenStreetMap contributors &copy; CARTO', max_zoom: 19, fallback: esri_streets}
     light:   {url: 'https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key={key}', key_env: CARTO_API_KEY,
               attribution: '&copy; OpenStreetMap contributors &copy; CARTO', max_zoom: 19, fallback: esri_light}
+
+# --- profiles ---------------------------------------------------------------
+# python 04_visualise.py --profile web  -> a copy for a public website: written to
+# <data_dir>/viz_web, Esri tiles only (no API key in the pages), lighter choropleths
+profiles:
+  web:
+    global:
+      output_dir: viz_web
+      basemaps:                # key_env: null - never put an API key into the public pages
+        streets: {url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                  attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', max_zoom: 19, key_env: null}
+        light:   {url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                  attribution: 'Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors', max_zoom: 16, key_env: null}
+    choropleths:
+      grid_km: [5, 10, 25, 50]
+      h3_res: [4, 5, 6]        # resolution 7 left out: too many hexagons for one web page
+    heatmaps:                  # coarser squares for the web: smaller files
+      rates:  {cell_m: 5000, smooth_cells: 1}   # a 5 km square already holds enough people
+      values: {cell_m: 5000}
 
 # --- derived postcode variables -----------------------------------------------
 # Computed per postcode (pandas expression over `uses`) before area averages;
@@ -39,18 +59,22 @@ featured:
   - {title: House prices against deprivation, href: 'choropleths.html#geo=msoa&var=hp_price_1000m_w0&cmp=imd_index_of_multiple_deprivation_imd_score&bg=0',
      text: 'Bivariate map: where prices are high despite deprivation, or low without it'}
   - {title: Five-year house price change, href: 'choropleths.html#geo=local_authorities&var=hp_change_1000m_w0_vs_w5',
-     text: Change map centred on zero (blue = fall, red = rise)}
+     text: 'Change map centred on zero (blue = fall, red = rise)'}
   - {title: Climate change since 1991-2020, href: 'choropleths.html#geo=grid_10km&var=temp_anomaly_c&bg=0&lines=0',
      text: 2023-25 temperatures against the 1991-2020 averages on 10 km squares}
   - {title: Drive time to A&E, href: 'choropleths.html#geo=grid_5km&var=drive_hospitals_ae_min&lines=0',
      text: Access to emergency care over the road network}
-  - {title: Crime per 1,000 residents, href: 'cartograms.html#lay=4&var=crimes_per_1000_residents_1km',
-     text: Hot spots adjusted for population, MSOA hexes}
+  - {title: 'Crime per 1,000 residents', href: 'cartograms.html#lay=4&var=crimes_per_1000_residents_1km',
+     text: 'Hot spots adjusted for population, MSOA hexes'}
   - {title: Similar places, href: 'choropleths.html#geo=msoa&var=cluster&bg=0',
-     text: MSOAs grouped into 8 types by price, deprivation, crime, urbanness, access and climate}
+     text: 'MSOAs grouped into 8 types by price, deprivation, crime, urbanness, access and climate'}
   - {title: Environmental risk, href: 'choropleths.html#geo=grid_5km&var=risk_index&lines=0',
-     text: Radon, ground stability, low-lying land by rivers and flood risk combined}
+     text: 'Radon, ground stability, low-lying land by rivers and flood risk combined'}
   - {title: Small multiples, href: small_multiples.html, text: Nine variables side by side on the same cartogram}
+  - {title: Serious road collisions by neighbourhood, href: 'choropleths.html#geo=msoa&var=collisions_ksi_per_1000_res_yr_nbhd_2step&bg=0',
+     text: 'Fatal or serious collisions per 1,000 residents a year, pooled over LSOAs within 2 boundaries'}
+  - {title: Stations within a 15-minute walk, href: 'heatmaps.html#ds=value_rail_stations_within_15min_walk',
+     text: How many railway stations can be reached on foot, averaged over squares}
   - {title: Through-routes of central London, href: 'network_explorer.html#loc=St_Pauls&view=btw',
      text: Road centrality - which roads carry the shortest routes across the square}
   - {title: Bridges across the Thames, href: 'network_explorer.html#loc=St_Pauls&view=lsoa',
@@ -83,8 +107,8 @@ locations:
   York:            {postcode: YO1 7HH, note: York Minster}
   Edinburgh:       {postcode: EH1 2NG, note: Edinburgh Castle}
   St_Ives:         {postcode: TR26 1LP, note: St Ives harbour, Cornwall}
-  Keswick:         {postcode: CA12 5DG, note: Keswick, Lake District}
-  Llanberis:       {postcode: LL55 4UR, note: Llanberis, foot of Snowdon}
+  Keswick:         {postcode: CA12 5DG, note: 'Keswick, Lake District'}
+  Llanberis:       {postcode: LL55 4UR, note: 'Llanberis, foot of Snowdon'}
 
 # --- static mini maps -------------------------------------------------------
 # Every location as a size_m x size_m square. Layers are drawn in order.
@@ -180,20 +204,27 @@ cartograms:
     hp_change_1000m_w0_vs_w1:                     {label: House price change over 1 year (fraction), scale: diverging}
     hp_change_1000m_w0_vs_w3:                     {label: House price change over 3 years (fraction), scale: diverging}
     hp_change_1000m_w0_vs_w5:                     {label: House price change over 5 years (fraction), scale: diverging}
-    crime_change_12m_total:                       {label: Change in recorded crime, latest 12 months vs previous 12 (fraction), scale: diverging}
+    crime_change_12m_total:                       {label: 'Change in recorded crime, latest 12 months vs previous 12 (fraction)', scale: diverging}
     climate_temp_change_2025_c:                   {label: 2025 mean temperature vs 2023-24 (°C), scale: diverging}
     temp_anomaly_c:                               {label: 'Climate change: 2023-25 mean temperature vs 1991-2020 (°C)', scale: diverging}
     rain_anomaly:                                 {label: 'Climate change: 2023-25 rainfall vs 1991-2020 (fraction)', scale: diverging}
     # hot spots adjusted for population
-    crimes_per_1000_residents_1km:                {label: Crimes within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
+    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
     violent_crime_per_1000_residents_1km:         Violent crime within 1 km per 1,000 residents
     burglary_per_100_households_1km:              Burglaries within 1 km per 100 households
-    collisions_per_1000_residents_1km:            {label: Road collisions within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
+    collisions_per_1000_residents_1km:            {label: 'Road collisions within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
     takeaways_per_10000_residents_1km:            Takeaways within 1 km per 10,000 residents
     # travel times (access)
     walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
     walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
     walk_supermarkets_min:                        Walking time to nearest supermarket (minutes)
+    walk_takeaways_min:                           Walking time to nearest takeaway (minutes)
+    rail_stations_within_15min_walk:              {label: Railway stations within a 15-minute walk, countries: [E, W, S]}
+    # road safety by LSOA neighbourhood (03_features.py neighbours group)
+    collisions_per_1000_res_yr_lsoa:              {label: 'Road collisions per 1,000 residents per year (own LSOA)', countries: [E, W]}
+    collisions_per_1000_res_yr_nbhd_2step:        {label: 'Road collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
+    collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
+    casualties_per_1000_res_yr_nbhd_5step:        {label: 'Road casualties per 1,000 residents per year (LSOAs within 5 boundaries)', countries: [E, W]}
     walk_secondary_schools_min:                   {label: Walking time to nearest secondary school (minutes; England), countries: [E]}
     drive_hospitals_ae_min:                       {label: Drive time to nearest A&E (minutes; England), countries: [E]}
     drive_motorway_junctions_min:                 {label: Drive time to nearest motorway junction (minutes; Great Britain), countries: [E, W, S]}
@@ -235,6 +266,7 @@ choropleths:
     msoa:              {label: MSOAs (England and Wales), file: ons_boundaries/msoa21.parquet,
                         key: msoa21cd, name_col: msoa21nm, code: msoa21cd, simplify_m: 40}
   grid_km: [2.5, 5, 10, 25, 50]   # OS national grid squares built from postcode coordinates
+  h3_res: [4, 5, 6, 7]            # Uber H3 hexagons (h3geo.org): ~1,770 / 250 / 36 / 5 km² each
   variables: *area_variables
   # "similar places": k-means clusters of areas on these (standardised) averages,
   # each cluster labelled by its two most distinctive variables (`short` names)
@@ -263,6 +295,10 @@ networks:
   walk_kmh: 4.8
   speeds_kmh: {}               # override drive speeds by road class, e.g. {A Road: 60}
   roads: os_open/openroads__road_link.parquet
+  collisions: road_safety/collision.parquet
+  wide_pad_m: 45000            # roads this far beyond the square for station times and 30-minute reach
+  collision_reach_min: 30      # collisions reachable within this many minutes' drive ...
+  collision_reach_grid_m: 250  # ... from points on a grid this fine (each road takes its nearest point)
   # the generalised LSOAs (same as the features' neighbour averages) are clipped to the
   # coast and the larger rivers, so areas across the Thames do not touch and the road
   # "bridges" show; the full-resolution file extends to mid-river so every bank touches
@@ -310,6 +346,18 @@ heatmaps:
       gp_practices:      {label: 'GP practices per 10,000 residents', per: residents, scale: 10000}
       listed_buildings:  {label: 'Listed buildings per 100 addresses', per: addresses, scale: 100}
       property_sales:    {label: 'House sales per 100 addresses', per: addresses, scale: 100, note: 'Standard sales since January 2020.'}
+  # postcode values averaged over squares (weighted by addresses); low_is_good colours short = green
+  values:
+    cell_m: 1000
+    datasets:
+      # breaks: fixed colour bands (otherwise eighths of the squares)
+      walk_rail_stations_min: {label: Walking time to the nearest railway station (minutes), countries: [E, W, S],
+                               breaks: [10, 15, 20, 30, 45, 60, 90]}
+      walk_takeaways_min:     {label: Walking time to the nearest takeaway (minutes), breaks: [10, 15, 20, 30, 45, 60, 90],
+                               note: 'Takeaways and sandwich shops in the FSA hygiene ratings.'}
+      rail_stations_within_15min_walk: {label: Railway stations within a 15-minute walk, countries: [E, W, S],
+                               low_is_good: false, breaks: [0.05, 0.25, 0.5, 0.75, 1, 1.5, 2],
+                               help: 'how many railway stations can be reached on foot within 15 minutes of home (street network, 4.8 km/h); more is better (green). Most of the country has none, so most squares are red.'}
 
 # --- interactive feature explorer -------------------------------------------
 # One HTML page per area: every postcode in the square as a dot on a street
@@ -323,11 +371,14 @@ interactive:
     hp_change_1000m_w0_vs_w5:                     House price change over 5 years (fraction)
     lr_median_price:                              Median sale price in the postcode (£)
     imd_index_of_multiple_deprivation_imd_score:  Deprivation score (IMD 2025, England; higher = more deprived)
-    crimes_per_1000_residents_1km:                {label: Crimes within 1 km per 1,000 residents (England and Wales), countries: [E, W]}
+    crimes_per_1000_residents_1km:                {label: 'Crimes within 1 km per 1,000 residents (England and Wales)', countries: [E, W]}
     bb_gigabit_availability_premises:             Gigabit broadband available (% of premises)
     gas_median_cons_kwh:                          Median household gas use (kWh / year)
     walk_rail_stations_min:                       {label: Walking time to nearest railway station (minutes), countries: [E, W, S]}
     walk_gp_practices_min:                        {label: Walking time to nearest GP practice (minutes; England and Wales), countries: [E, W]}
+    rail_stations_within_15min_walk:              {label: Railway stations within a 15-minute walk, countries: [E, W, S]}
+    walk_takeaways_min:                           Walking time to nearest takeaway (minutes)
+    collisions_ksi_per_1000_res_yr_nbhd_2step:    {label: 'Fatal or serious collisions per 1,000 residents per year (LSOAs within 2 boundaries)', countries: [E, W]}
     dist_greenspace_m:                            Distance to nearest greenspace (m; 0 = inside)
     dist_coast_m:                                 Distance to the coast (m)
     climate_rainfall_mm_avg:                      Annual rainfall, 2023-25 average (mm)

@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -32,14 +33,48 @@ from geodata.viz import PAGE_CSS, label, resolve_locations
 STEPS = ("minimaps", "interactive", "cartograms", "choropleths", "heatmaps", "networks", "variables")
 
 
+REPO_LINK = re.compile(r'(<a href="index\.html">All visualisations</a>)(?: \| <a class="repo"[^>]*>[^<]*</a>)?')
+
+
+def _add_repo_link(out_dir: Path, url: str | None) -> None:
+    """Link every page header to the code on GitHub (`global.repo_url`). Re-running replaces the
+    link rather than adding another, so pages built by earlier runs stay consistent."""
+    if not url:
+        return
+    import html as _html
+    link = f'<a class="repo" href="{_html.escape(url)}">Code on GitHub</a>'
+    n = 0
+    for p in out_dir.glob("*.html"):
+        s = p.read_text(encoding="utf-8")
+        new = REPO_LINK.sub(lambda m: f"{m.group(1)} | {link}", s)
+        if new != s:
+            p.write_text(new, encoding="utf-8")
+            n += 1
+    logging.getLogger("visualise").info("repo link on %d pages", n)
+
+
+def _merge(base: dict, over: dict) -> dict:
+    """Profile overrides: nested dicts merge; anything else (lists included) replaces."""
+    out = dict(base)
+    for k, v in over.items():
+        out[k] = _merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=str(REPO_ROOT / "config" / "visualise.yaml"))
     ap.add_argument("--data-dir")
     ap.add_argument("--only", nargs="+", choices=STEPS)
+    ap.add_argument("--profile", help="apply a `profiles:` override from the config, e.g. web (copy for a public site)")
     a = ap.parse_args(argv)
 
     cfg = yaml.safe_load(open(a.config, encoding="utf-8"))
+    if a.profile:
+        prof = (cfg.get("profiles") or {}).get(a.profile)
+        if prof is None:
+            ap.error(f"no profile {a.profile!r} under `profiles:` in {a.config}")
+        cfg = _merge(cfg, prof)
     g = cfg.get("global", {})
     data_dir = Path(a.data_dir or os.environ.get("GEODATA_DIR") or g.get("data_dir", "data")).expanduser()
     if not data_dir.is_absolute():
@@ -77,7 +112,8 @@ def main(argv=None) -> int:
         build_heatmaps(data_dir, out_dir, cfg["heatmaps"])
     if "networks" in steps and cfg.get("networks"):
         from geodata.viz.networks import build_networks
-        build_networks(data_dir, out_dir, locs, cfg["networks"])
+        build_networks(data_dir, out_dir, locs, cfg["networks"],
+                       layers=(cfg.get("minimaps") or {}).get("layers"))   # background layers, as in the explorer
     if "variables" in steps:
         from geodata.viz.variables import build_variables
         build_variables(data_dir, out_dir)
@@ -117,6 +153,8 @@ def main(argv=None) -> int:
         f'<span>{_html.escape(f.get("text", ""))}</span></a>'
         for f in cfg.get("featured") or [] if (out_dir / f["href"].split("#")[0]).exists())
     featured = f'<h2>Featured maps</h2><div class="cards">{cards}</div><h2>All pages</h2>' if cards else ""
+    repo = (f' | <a href="{_html.escape(g["repo_url"])}">Code and data pipeline on GitHub</a>'
+            if g.get("repo_url") else "")
     (out_dir / "index.html").write_text(
         f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>GeoData visualisations</title>'
         f'<style>{PAGE_CSS} li{{margin:6px 0}} h2{{font-size:17px;margin:18px 0 8px}}'
@@ -124,8 +162,9 @@ def main(argv=None) -> int:
         f'.card{{background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 3px #0002;text-decoration:none;color:#222}}'
         f'.card b{{display:block;margin-bottom:4px;color:#1d5f8a}} .card span{{font-size:13px;color:#555}}'
         f'.card:hover{{box-shadow:0 2px 8px #0003}}</style></head><body><header><h1>GeoData visualisations</h1>'
-        f'<p>UK open data by postcode</p></header><main>{featured}<ul>{"".join(links)}</ul></main></body></html>',
+        f'<p>UK open data by postcode{repo}</p></header><main>{featured}<ul>{"".join(links)}</ul></main></body></html>',
         encoding="utf-8")
+    _add_repo_link(out_dir, g.get("repo_url"))
     log.info("visualisations written to %s in %.0fs", out_dir, time.perf_counter() - t0)
     return 0
 

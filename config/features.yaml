@@ -151,7 +151,7 @@ network:
     exclude_classes: [Motorway]
     max_m: 20000
     targets: [rail_stations, bus_stops, primary_schools, secondary_schools, gp_practices, pharmacies,
-              supermarkets, park_entrances]
+              supermarkets, park_entrances, takeaways]
     count_within_min: {rail_stations: 15}
     max_count_targets: 20000
   drive:
@@ -180,5 +180,8 @@ neighbours:
   # "bridges": LSOAs that do not touch (across a river or estuary) but are joined by a
   # road link count as neighbours too
   bridges: {roads: os_open/openroads__road_link.parquet}
+  # road collisions located in each LSOA: annual rates per 1,000 residents for the LSOA and
+  # pooled over its neighbourhoods (all collisions / all residents within k boundaries)
+  collisions: {file: road_safety/collision.parquet, min_population: 100}
   lookup_columns: [imd_index_of_multiple_deprivation_imd_score, imd_income_score_rate,
                    imd_living_environment_score]

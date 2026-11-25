@@ -82,6 +82,36 @@ def _grid_geography(t, size_m, variables, to_ll):
     return {"names": names, "rings": rings, "agg": agg}
 
 
+def _h3_geographies(t, resolutions, variables):
+    """Uber H3 hexagons (h3geo.org): postcodes -> cell at the finest resolution asked for, coarser
+    resolutions via the cell's parents. One geography per resolution, aggregated like the grid squares."""
+    import h3
+    import pyarrow.compute as pc
+    res = sorted({int(r) for r in resolutions})
+    lat = pc.cast(t["lat"], "float64").to_numpy(zero_copy_only=False)
+    lon = pc.cast(t["long"], "float64").to_numpy(zero_copy_only=False)
+    ok = np.isfinite(lat) & np.isfinite(lon) & (np.abs(lat) <= 90)
+    fine = [h3.latlng_to_cell(a, b, res[-1]) if k else None for a, b, k in zip(lat, lon, ok)]
+    out = []
+    for r in res:
+        if r == res[-1]:
+            cells = fine
+        else:
+            par = {c: h3.cell_to_parent(c, r) for c in set(fine) - {None}}
+            cells = [par.get(c) for c in fine]
+        col = f"_h3_{r}"
+        tt = t.append_column(col, pa.array(cells, pa.string()))
+        codes = sorted({c for c in cells if c})
+        agg = _aggregate(tt, col, codes, variables)
+        km2 = h3.average_hexagon_area(r, "km^2")
+        rings = [[np.round(np.asarray(h3.cell_to_boundary(c)), 5).ravel().tolist()] for c in codes]
+        names = [f"H3 hexagon {c} (resolution {r}, about {km2:,.0f} km²)" if km2 >= 1 else
+                 f"H3 hexagon {c} (resolution {r}, about {km2:.2f} km²)" for c in codes]
+        out.append({"label": f"H3 hexagons, resolution {r} (about {km2:,.1f} km² each)", "id": f"h3_r{r}",
+                    "names": names, "rings": rings, "agg": agg})
+    return out
+
+
 TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GeoData choropleth maps</title>
@@ -95,8 +125,9 @@ html,body{height:100%} body{display:flex;flex-direction:column}
 .legend{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;line-height:18px}
 .legend i{display:inline-block;width:16px;height:14px;margin-right:6px;vertical-align:-2px;opacity:.85}
 </style></head><body>
-<header><h1>Choropleth maps</h1><p>Postcode features averaged to real geographies (weighted by addresses): ONS boundaries
-and Ordnance Survey national grid squares. Boundaries: ONS Open Geography (OGL v3), simplified for the web.
+<header><h1>Choropleth maps</h1><p>Postcode features averaged to real geographies (weighted by addresses): ONS boundaries,
+Ordnance Survey national grid squares and <a href="https://h3geo.org">H3</a> hexagons (Uber's hierarchical hexagonal grid,
+Apache 2.0). Boundaries: ONS Open Geography (OGL v3), simplified for the web.
 <a href="index.html">All visualisations</a></p></header>
 <div id="bar"><label>Geography <select id="geo"></select></label><label>Colour by <select id="var"></select></label>
 <label>Compare with <select id="cmp"><option value="-1">(nothing: one variable)</option></select></label>
@@ -113,7 +144,7 @@ const geo = document.getElementById('geo'), sel = document.getElementById('var')
 const cmp = document.getElementById('cmp');
 D.geos.forEach((g, i) => geo.add(new Option(g.label + ' (' + g.names.length.toLocaleString('en-GB') + ')', i)));
 D.vars.forEach((v, i) => { sel.add(new Option(v.label, i)); if (!v.categorical) cmp.add(new Option(v.label, i)); });
-let layer = null;
+let layer = null, fitOnBuild = false;
 const metaFor = (k, G) => D.vars[k].categorical ? {cats: G.cats || []} : D.vars[k];
 const show = (k, G, i) => { const v = G.values[k][i]; return D.vars[k].categorical && typeof v === 'number' ? (G.cats || [])[v] : fmt(v); };
 const legend = L.control({position: 'bottomright'});
@@ -134,6 +165,10 @@ function build() {
       .addTo(layer);
   });
   layer.addTo(map);
+  if (fitOnBuild && layer.getLayers().length) {   // zoom to the chosen geography (not on first load: keep the UK view)
+    map.invalidateSize(); map.fitBounds(layer.getBounds(), {padding: [10, 10]});
+  }
+  fitOnBuild = true;
   recolour();
 }
 function recolour() {
@@ -215,7 +250,9 @@ def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
     ccfg = cfg.get("clusters") or {}
     cvars = {c: (v if isinstance(v, dict) else {"label": v}) for c, v in (ccfg.get("variables") or {}).items()}
     agg_vars = {**cvars, **variables}   # cluster inputs are averaged too, even if not shown
-    t = _postcode_table(data_dir, [*(b["code"] for b in bounds.values()), "easting", "northing"], agg_vars)
+    h3_res = cfg.get("h3_res") or []
+    t = _postcode_table(data_dir, [*(b["code"] for b in bounds.values()), "easting", "northing",
+                                   *(["lat", "long"] if h3_res else [])], agg_vars)
     missing = [c for c in agg_vars if c not in t.column_names]
     variables, agg_vars = ({c: v for c, v in d.items() if c in t.column_names} for d in (variables, agg_vars))
     found = list(variables)
@@ -234,6 +271,11 @@ def build_choropleths(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
         g = _grid_geography(t, float(km) * 1000, agg_vars, to_ll)
         g["label"], g["id"] = f"OS national grid, {km} km squares", f"grid_{km:g}km"
         geos.append(g)
+    if h3_res:
+        try:
+            geos.extend(_h3_geographies(t, h3_res, agg_vars))
+        except ImportError:
+            log.warning("choropleths: H3 hexagons skipped - install h3 (conda install -c conda-forge h3-py)")
     if not geos:
         log.warning("choropleths: no geographies - nothing written")
         return None

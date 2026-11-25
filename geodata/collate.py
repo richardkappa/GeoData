@@ -37,6 +37,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class Dictionary:
     rows: list[tuple] = field(default_factory=list)
+    extract_dir: Path | None = None   # for description catalogues (e.g. the census catalogue)
 
     def add(self, cols, source: str, join: str, key: str, note: str = ""):
         for c in cols:
@@ -45,8 +46,8 @@ class Dictionary:
     def table(self) -> pa.Table:
         from .descriptions import fill
         cols = list(zip(*self.rows)) if self.rows else [[]] * 5
-        if self.rows:   # columns without a join note get one from config/column_descriptions.yaml
-            cols[4] = fill(list(cols[0]), list(cols[4]))
+        if self.rows:   # blank or generic join notes -> specific descriptions (config/column_descriptions.yaml)
+            cols[4] = fill(list(cols[0]), list(cols[4]), self.extract_dir)
         return pa.table(cols, names=["column", "source", "join", "key", "note"])
 
 
@@ -389,7 +390,7 @@ def build(extract_dir: Path, cfg: dict[str, Any]) -> tuple[pa.Table, pa.Table]:
     if sp.get("require_coordinates", True):
         spine = spine.filter(pc.is_valid(spine["easting"]))
     log.info("spine   %s postcodes", f"{spine.num_rows:,}")
-    dd = Dictionary()
+    dd = Dictionary(extract_dir=Path(extract_dir))
     dd.add(spine.column_names, sp.get("file", "ons_nspl/nspl.parquet"), "spine", POSTCODE_KEY)
 
     # row order is fixed from here: every join appends aligned columns

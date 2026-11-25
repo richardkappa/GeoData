@@ -18,6 +18,7 @@ shortest-path trees of a sample of sources.
 from __future__ import annotations
 
 import json
+import time
 import logging
 from pathlib import Path
 
@@ -43,7 +44,65 @@ def _graph(sub):
     g = sub.geometry.values
     xy[u] = shapely.get_coordinates(shapely.get_point(g, 0))
     xy[v] = shapely.get_coordinates(shapely.get_point(g, -1))
-    return u, v, len(uniq), xy
+    return u, v, len(uniq), xy, uniq
+
+
+def _wide_measures(roads, box, cfg, speeds, walk_kmh, stations, coll, sub_ids):
+    """Measures that need a much wider road network than the square (30 minutes' drive can be
+    40+ km): walking / driving time from every node of the square to the nearest railway station,
+    and road collisions (total, fatal) reachable within N minutes' drive of a grid of points."""
+    from scipy.sparse.csgraph import dijkstra
+    from scipy.spatial import cKDTree
+    import pandas as pd
+    wpad = float(cfg.get("wide_pad_m", 45000))
+    wb = (box[0] - wpad, box[1] - wpad, box[2] + wpad, box[3] + wpad)
+    ws = roads.cx[wb[0]:wb[2], wb[1]:wb[3]]
+    ws = ws[ws["start_node"].notna() & ws["end_node"].notna()]
+    u, v, n, xy, uniq = _graph(ws)
+    cls = ws["road_classification"].astype(str).to_numpy()
+    length = ws["length"].to_numpy("f8")
+    drive_s = length / (np.array([speeds.get(c, 25) for c in cls], dtype="f8") / 3.6)
+    walkable = cls != "Motorway"
+    walk_s = length / (walk_kmh / 3.6)
+    A_drive = _csr(u, v, drive_s, n)
+    A_walk = _csr(u, v, walk_s, n, walkable)
+    dnodes = np.unique(np.r_[u, v])
+    wnodes = np.unique(np.r_[u[walkable], v[walkable]])
+    out = {"walk_station": None, "drive_station": None, "reach": [], "reach_min": None}
+    pos = pd.Index(uniq).get_indexer(pd.Index(sub_ids))    # square's nodes -> wide network nodes
+    # time to the nearest station: one multi-source search per mode
+    if stations is not None and len(stations):
+        s = stations[stations["easting"].between(wb[0], wb[2]) & stations["northing"].between(wb[1], wb[3])]
+        if len(s):
+            sxy = s[["easting", "northing"]].to_numpy()
+            for key, A, nodes in (("walk_station", A_walk, wnodes), ("drive_station", A_drive, dnodes)):
+                _, si = cKDTree(xy[nodes]).query(sxy)
+                d = dijkstra(A, directed=False, indices=np.unique(nodes[si]), min_only=True)
+                out[key] = np.where(pos >= 0, d[np.clip(pos, 0, None)], np.inf)
+    # collisions reachable within `reach_min` minutes' drive of grid points in the square
+    minutes = float(cfg.get("collision_reach_min", 30))
+    if coll is not None and len(coll):
+        c = coll[coll["easting"].between(wb[0], wb[2]) & coll["northing"].between(wb[1], wb[3])]
+        tree = cKDTree(xy[dnodes])
+        dist, ci = tree.query(c[["easting", "northing"]].to_numpy())
+        near = dist <= 200                                 # collisions on (or beside) a mapped road
+        node = dnodes[ci[near]]
+        cnt_t = np.bincount(node, minlength=n).astype("f8")
+        cnt_f = np.bincount(node[c["collision_severity"].to_numpy()[near] == 1], minlength=n).astype("f8")
+        step = float(cfg.get("collision_reach_grid_m", 400))
+        gx, gy = np.meshgrid(np.arange(box[0] + step / 2, box[2], step), np.arange(box[1] + step / 2, box[3], step))
+        gd, gi = tree.query(np.column_stack([gx.ravel(), gy.ravel()]))
+        src = np.unique(dnodes[gi[gd <= 300]])               # grid points on or near a road
+        limit = minutes * 60
+        for i in range(0, len(src), 20):                     # chunks keep the distance matrix small
+            ch = src[i:i + 20]
+            d = dijkstra(A_drive, directed=False, indices=ch, limit=limit)
+            reach = (d <= limit).astype("f8")
+            for k, sn in enumerate(ch):
+                out["reach"].append((xy[sn], int(reach[k] @ cnt_t), int(reach[k] @ cnt_f)))
+        out["reach_min"] = minutes
+    log.info("networks: wide network %s links; %d reach points", f"{len(ws):,}", len(out["reach"]))
+    return out
 
 
 def _csr(u, v, w, n, mask=None):
@@ -109,7 +168,9 @@ def _contract(u, v, n, xy, mask):
     return xy[nodes], [(pos[a], pos[b]) for a, b in edges if a in pos and b in pos]
 
 
-def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict) -> Path | None:
+def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict, layers: list | None = None) -> Path | None:
+    """`layers`: the mini map layer specs; their per-location data (minimap_data/<name>.js, written by
+    the mini map explorer) is offered as background layers."""
     import geopandas as gpd
     import shapely
     from pyproj import Transformer
@@ -140,6 +201,11 @@ def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict) -> Path
             import pyarrow.parquet as pq
             st = pq.read_table(nf, columns=["stoptype", "commonname", "easting", "northing"]).to_pandas()
             stations = st[(st["stoptype"] == "RLY") & st["easting"].notna()]
+        cf = data_dir / "extract" / cfg.get("collisions", "road_safety/collision.parquet")
+        coll = None
+        if cf.exists():
+            import pyarrow.parquet as pq
+            coll = pq.read_table(cf, columns=["easting", "northing", "collision_severity"]).to_pandas().dropna()
 
     def ll(xy):
         lon, lat = to_ll.transform(xy[:, 0], xy[:, 1])
@@ -157,7 +223,7 @@ def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict) -> Path
             if len(sub) < 10:
                 log.warning("networks: %s has too few roads - skipped", name)
                 continue
-            u, v, n, xy = _graph(sub)
+            u, v, n, xy, uniq = _graph(sub)
             length = sub["length"].to_numpy("f8")
             cls = sub["road_classification"].astype(str).to_numpy()
             kmh = np.array([speeds.get(c, 25) for c in cls], dtype="f8")
@@ -201,21 +267,52 @@ def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict) -> Path
                             if k is not None:
                                 route.append(k)
                             node = par
+            # wider network: time to the nearest station, collisions within N minutes' drive
+            wide = _wide_measures(roads, box, cfg, speeds, walk_kmh, stations, coll, uniq)
+            # collision hotspots: each collision on the nearest road link within 30 m
+            ct = np.zeros(len(sub))
+            cfat = np.zeros(len(sub))
+            if coll is not None and len(coll):
+                cc = coll[coll["easting"].between(big[0], big[2]) & coll["northing"].between(big[1], big[3])]
+                if len(cc):
+                    pin, lk = shapely.STRtree(sub.geometry.values).query_nearest(
+                        shapely.points(cc["easting"].to_numpy(), cc["northing"].to_numpy()), max_distance=30)
+                    first = np.unique(pin, return_index=True)[1]   # one road per collision (ties: first)
+                    pin, lk = pin[first], lk[first]
+                    np.add.at(ct, lk, 1)
+                    np.add.at(cfat, lk[cc["collision_severity"].to_numpy()[pin] == 1], 1)
             # display: links touching the square (plus a margin), simplified and in lat/lon
             show = np.flatnonzero(shapely.intersects(sub.geometry.values,
                                                      shapely.box(box[0] - 300, box[1] - 300, box[2] + 300, box[3] + 300)))
             g = shapely.simplify(sub.geometry.values[show], 2.0)
             links = []
             on_route = set(route)
+            # collisions within N minutes' drive: each road section takes the value of the nearest
+            # reach point (computed on a grid along the roads), so the measure is drawn on the network
+            if wide["reach"]:
+                from scipy.spatial import cKDTree
+                rxy = np.array([p for p, _, _ in wide["reach"]])
+                rtree, rvals = cKDTree(rxy), [(t, f) for _, t, f in wide["reach"]]
+            else:
+                rtree = None
+
+            def reach_of(coords):
+                if rtree is None:
+                    return None, None
+                d, i = rtree.query(coords[len(coords) // 2])
+                return rvals[i] if d <= 2 * float(cfg.get("collision_reach_grid_m", 250)) else (None, None)
             for k, geom in zip(show, g):
                 c = shapely.get_coordinates(geom)
                 if len(c) < 2:
                     continue
                 tmid = lambda d: None if not (np.isfinite(d[u[k]]) or np.isfinite(d[v[k]])) else \
                     round(float(np.nanmin([d[u[k]], d[v[k]]])) / 60, 1)
+                rt, rf = reach_of(c)
                 links.append([ll(c).ravel().tolist(), CLASS_ORDER.index(cls[k]) if cls[k] in CLASS_ORDER else 6,
                               round(float(btw[k]), 3), tmid(dw) if walkable[k] else None, tmid(dd),
-                              1 if k in on_route else 0])
+                              1 if k in on_route else 0, int(ct[k]), int(cfat[k]),
+                              tmid(wide["walk_station"]) if wide["walk_station"] is not None and walkable[k] else None,
+                              tmid(wide["drive_station"]) if wide["drive_station"] is not None else None, rt, rf])
             # major road junction network
             major = np.isin(cls, ["Motorway", "A Road"])
             jxy, jedges = _contract(u, v, n, xy, major)
@@ -247,14 +344,17 @@ def build_networks(data_dir: Path, out_dir: Path, locs: dict, cfg: dict) -> Path
             data = {"box": [[round(a, 6), round(b, 6)] for a, b in zip(lat, lon)], "links": links,
                     "centre": ll(xy[[centre]])[0].tolist(), "station": station,
                     "junctions": {"pts": ll(jxy).tolist() if len(jxy) else [], "edges": jedges},
-                    "lsoa": lnet}
+                    "lsoa": lnet, "reach_min": wide["reach_min"]}
             (nd / f"{name}.js").write_text(f"window.NET[{json.dumps(name)}]=" + json.dumps(data, separators=(",", ":"))
                                            + ";", encoding="utf-8")
             meta.append({"name": name, "label": name.replace("_", " ") + (f" - {loc['note']}" if loc.get("note") else "")})
     if not meta:
         return None
     page = (TEMPLATE.replace("__CSS__", PAGE_CSS).replace("__TILES__", tile_js("light"))
-            .replace("__KM__", f"{size / 1000:g} km").replace("__META__", json.dumps({"locations": meta})))
+            .replace("__KM__", f"{size / 1000:g} km").replace("__VER__", str(int(time.time())))
+            .replace("__META__", json.dumps({"locations": meta}))
+            .replace("__LAYERS__", json.dumps([{"name": s["name"], "kind": s["kind"], "style": s.get("style"),
+                                                "styles": s.get("styles")} for s in (layers or [])])))
     out = out_dir / "network_explorer.html"
     out.write_text(page, encoding="utf-8")
     mb = sum(p.stat().st_size for p in nd.glob("*.js")) / 1e6
@@ -270,7 +370,13 @@ TEMPLATE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>__CSS__
 html,body{height:100%} body{display:flex;flex-direction:column}
 #bar{display:flex;gap:18px;align-items:center;padding:10px 26px;background:#fff;border-bottom:1px solid #ddd;flex-wrap:wrap}
-#bar select{font-size:14px;padding:4px;max-width:520px} #map{flex:1}
+#bar select{font-size:14px;padding:4px;max-width:520px}
+#main{flex:1;display:flex;min-height:0} #map{flex:1}
+#side{width:250px;overflow:auto;background:#fff;border-left:1px solid #ddd;padding:10px 14px;font-size:13px}
+#side label{display:block;margin:3px 0;cursor:pointer} #side h3{font-size:13px;margin:12px 0 4px}
+.sw{display:inline-block;width:18px;height:10px;margin:0 6px 0 4px;vertical-align:middle;border-radius:2px}
+.allnone{float:right} .allnone button{font-size:11px;padding:1px 7px;margin-left:4px;cursor:pointer;border:1px solid #bbb;border-radius:3px;background:#f4f4f4}
+.allnone button:hover{background:#e6e6e6}
 .legend{background:#fff;padding:8px 10px;border-radius:6px;box-shadow:0 1px 4px #0003;font-size:12px;line-height:18px;max-width:280px}
 .legend i{display:inline-block;width:22px;height:4px;margin-right:6px;vertical-align:middle}
 .legend b.dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:6px;vertical-align:-1px}
@@ -284,15 +390,25 @@ neighbouring LSOAs with bridges across rivers. Roads: OS Open Roads; areas: ONS 
 <option value="walk">Walking time from the centre</option>
 <option value="drive">Driving time from the centre</option>
 <option value="route">Shortest walk to the nearest railway station</option>
+<option value="walkst">Walking time to the nearest railway station (every road)</option>
+<option value="drivest">Driving time to the nearest railway station (every road)</option>
+<option value="coll">Road collision hotspots (all injury collisions, 5 years)</option>
+<option value="collf">Fatal road collision hotspots (5 years)</option>
+<option value="reach">Road collisions within a 30-minute drive</option>
+<option value="reachf">Fatal road collisions within a 30-minute drive</option>
 <option value="junc">Major road junction network (A roads and motorways, simplified)</option>
 <option value="lsoa">LSOA neighbour network with bridges</option>
 <option value="rings">LSOAs within 1, 2 and 3 boundaries of the centre</option>
 </select></label>
-<label><input type="checkbox" id="bg" checked> background map</label><span id="note"></span></div>
-<div id="map"></div>
+<span id="note"></span></div>
+<div id="main"><div id="map"></div><div id="side"><b>Map layers</b>
+<span class="allnone"><button type="button" id="all">All</button><button type="button" id="none">None</button></span>
+<div id="layers"></div>
+<h3>Background</h3><label><input type="checkbox" id="bg" checked> street map</label></div></div>
 <script>
-const M = __META__;
-window.NET = {};
+const M = __META__, ML = __LAYERS__, VER = '?v=__VER__';   // VER: build stamp so browsers refetch data after a rebuild
+// ML: the mini map explorer's background layers (same squares)
+window.NET = {}; window.MINIMAP = {};
 const map = L.map('map', {preferCanvas: true});
 __TILES__
 let tiles = null; map.eachLayer(l => { if (l instanceof L.TileLayer) tiles = l; });
@@ -306,12 +422,52 @@ const legend = L.control({position: 'bottomright'});
 legend.onAdd = () => { const d = L.DomUtil.create('div', 'legend'); d.id = 'legend'; return d; };
 legend.addTo(map);
 const pl = c => { const a = []; for (let k = 0; k < c.length; k += 2) a.push([c[k], c[k + 1]]); return a; };
+// --- background map layers, as in the mini map explorer (unticked by default, drawn under the network)
+const checks = {};
+ML.forEach((ly, i) => {
+  const st = ly.styles ? Object.values(ly.styles)[0] : ly.style;
+  const c = st.color === 'none' ? (st.edgecolor || '#888') : (st.color || '#888');
+  const lab = document.createElement('label');
+  lab.innerHTML = '<input type="checkbox"><span class="sw" style="background:' + c + '"></span>' + ly.name;
+  checks[i] = lab.querySelector('input'); checks[i].onchange = () => { drawBg(); draw(); };
+  document.getElementById('layers').appendChild(lab);
+});
+let bgGroups = [];
+map.createPane('bgPane').style.zIndex = 350;              // below the overlay pane (400) the network draws in
+const bgR = L.canvas({pane: 'bgPane'});
+function lineStyle(st) { return {color: st.color, weight: Math.max(0.6, (st.linewidth || 1) * 1.3), opacity: 0.95, interactive: false, renderer: bgR}; }
+function polyStyle(st) { const fill = st.color && st.color !== 'none';
+  return {color: st.edgecolor && st.edgecolor !== 'none' ? st.edgecolor : (fill ? st.color : '#888'), weight: st.linewidth || 0.5,
+          fillColor: fill ? st.color : 'none', fillOpacity: fill ? Math.min(st.alpha || 0.6, 0.6) : 0,
+          opacity: st.edgecolor && st.edgecolor !== 'none' ? 1 : 0.3, dashArray: st.hatch ? '4 3' : null, interactive: false,
+          renderer: bgR}; }
+function drawBg() {
+  bgGroups.forEach(g => map.removeLayer(g)); bgGroups = [];
+  const D = window.MINIMAP[cur]; if (!D) return;
+  ML.forEach((ly, i) => {
+    if (!checks[i].checked || !D.layers[i]) return;
+    const g = L.layerGroup(), data = D.layers[i];
+    if (ly.kind === 'point') {
+      const st = ly.style || {};
+      data.forEach(p => L.circleMarker(p, {radius: (st.s || 4) > 10 ? 5 : 2.5, color: st.color, fillColor: st.color, fillOpacity: 1,
+        weight: (st.marker === 's') ? 2 : 0, interactive: false, renderer: bgR}).addTo(g));
+    } else {
+      L.geoJSON(data, {style: f => { const st = ly.styles ? (ly.styles[f.properties.s] || {}) : ly.style;
+        return ly.kind === 'line' ? lineStyle(st) : polyStyle(st); }, interactive: false, pane: 'bgPane'}).addTo(g);
+    }
+    g.addTo(map); bgGroups.push(g);
+  });
+}
+const setAll = on => { Object.values(checks).forEach(c => c.checked = on); drawBg(); draw(); };
+document.getElementById('all').onclick = () => setAll(true);
+document.getElementById('none').onclick = () => setAll(false);
 function tband(t) { if (t === null) return null; let k = 0; while (k < TB.length && t > TB[k]) k++; return TIME[k]; }
 function draw() {
   const D = window.NET[cur]; if (!D) return;
   if (layer) map.removeLayer(layer);
   layer = L.layerGroup();
   const v = view.value; let lg = '';
+  map.getPane('tilePane').style.opacity = (v === 'coll' || v === 'collf') ? 0.45 : 1;   // fade the street map under the hotspots
   const faint = () => D.links.forEach(l => L.polyline(pl(l[0]), {color: '#999', weight: 0.6, opacity: 0.5, interactive: false}).addTo(layer));
   if (v === 'btw') {
     D.links.slice().sort((a, b) => a[2] - b[2]).forEach(l => { const b = l[2], k = Math.min(4, Math.floor(Math.sqrt(b) * 5));
@@ -325,6 +481,51 @@ function draw() {
     lg = '<b>' + (v === 'walk' ? 'Walking' : 'Driving') + ' time from the centre</b><br>' +
       TIME.map((c, i) => '<i style="background:' + c + '"></i>' + (i === 0 ? 'up to 5' : i === 5 ? 'over 30' : TB[i - 1] + ' to ' + TB[i]) + ' min').join('<br>') +
       (v === 'walk' ? '<br><span style="color:#777">4.8 km/h; motorways excluded</span>' : '<br><span style="color:#777">typical speeds by road class</span>');
+  } else if (v === 'walkst' || v === 'drivest') {
+    const idx = v === 'walkst' ? 8 : 9, B = v === 'walkst' ? TB : [3, 5, 10, 15, 20];
+    const band = t => { if (t === null || t === undefined) return null; let k = 0; while (k < B.length && t > B[k]) k++; return TIME[k]; };
+    D.links.forEach(l => { const c = band(l[idx]); if (c) L.polyline(pl(l[0]), {color: c, weight: 2.2, opacity: 0.9})
+      .bindTooltip(l[idx] + ' min to the nearest station', {sticky: true}).addTo(layer); });
+    lg = '<b>' + (v === 'walkst' ? 'Walking' : 'Driving') + ' time to the nearest railway station</b><br>' +
+      TIME.map((c, i) => '<i style="background:' + c + '"></i>' + (i === 0 ? 'up to ' + B[0] : i === B.length ? 'over ' + B[B.length - 1] : B[i - 1] + ' to ' + B[i]) + ' min').join('<br>') +
+      '<br><span style="color:#777">from every road, over the road network to the nearest of all stations (searched up to 45 km beyond the square)' +
+      (v === 'walkst' ? '; 4.8 km/h, motorways excluded' : '; typical speeds by road class') + '</span>';
+  } else if (v === 'coll' || v === 'collf') {
+    // hotspots: dark outline + strong colours, the street map faded, rings on fatal / busiest sites so they show when zoomed out
+    const idx = v === 'coll' ? 6 : 7, CB = [1, 2, 4, 9], W = [1.8, 2.6, 3.6, 5, 7],
+      CP = v === 'coll' ? ['#fdae6b', '#fd8d3c', '#e6550d', '#b30000', '#49006a'] : ['#d7191c', '#a50026', '#67000d', '#49006a', '#2d004b'];
+    const cband = n => { let k = 0; while (k < CB.length && n > CB[k]) k++; return k; };
+    faint();
+    let tot = 0;
+    D.links.filter(l => l[idx] > 0).sort((a, b) => a[idx] - b[idx]).forEach(l => { const k = cband(l[idx]), ll = pl(l[0]); tot += l[idx];
+      const tip = l[idx] + (v === 'coll' ? ' injury collision' : ' fatal collision') + (l[idx] > 1 ? 's' : '') + ' on this road section (5 years)';
+      const fat = v === 'collf';   // low counts thin and light so the hotspots stand out; a dark outline from 3 up
+      if (fat || k >= 2) L.polyline(ll, {color: '#1a0000', weight: W[k] + (fat ? 4 : 2.5), opacity: 0.5, interactive: false}).addTo(layer);
+      L.polyline(ll, {color: CP[k], weight: fat ? W[k] + 2 : W[k], opacity: k || fat ? 1 : 0.85}).bindTooltip(tip, {sticky: true}).addTo(layer);
+      if (fat || k === 4) L.circleMarker(ll[Math.floor(ll.length / 2)], {radius: fat ? 11 : 13, color: CP[k], weight: 3,
+        fillColor: CP[k], fillOpacity: 0.2}).bindTooltip(tip).addTo(layer); });
+    lg = '<b>' + (v === 'coll' ? 'Road collision hotspots' : 'Fatal road collisions') + '</b><br>' +
+      ['1', '2', '3 to 4', '5 to 9', '10 or more'].map((t, i) => '<i style="background:' + CP[i] + ';height:' + Math.round(W[i]) + 'px"></i>' + t).join('<br>') +
+      '<br><span style="color:#777">collisions per road section; ' + (v === 'collf' ? 'every fatal site is ringed' : 'sections with 10 or more are ringed') +
+      '. ' + tot + ' collision' + (tot === 1 ? '' : 's') + ' on the roads shown; each one placed on the nearest road within 30 m (DfT STATS19, last 5 years)</span>';
+  } else if (v === 'reach' || v === 'reachf') {
+    // each road coloured by the collisions reachable within N minutes' drive (eighths of the roads shown)
+    const idx = v === 'reach' ? 10 : 11, vals = D.links.map(l => l[idx]).filter(x => typeof x === 'number').sort((a, b) => a - b);
+    const q = p => vals[Math.min(vals.length - 1, Math.floor(p * vals.length))];
+    const br = vals.length ? [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))] : [];
+    const PAL8 = ['#ffffcc','#ffeda0','#fed976','#feb24c','#fd8d3c','#fc4e2a','#e31a1c','#b10026'];
+    const idc = k => PAL8[Math.round(k * (PAL8.length - 1) / Math.max(br.length, 1))];
+    const col = x => { let k = 0; while (k < br.length && x > br[k]) k++; return idc(k); };
+    D.links.forEach(l => { const x = l[idx]; if (typeof x !== 'number') return;
+      L.polyline(pl(l[0]), {color: col(x), weight: 2.4, opacity: 0.9})
+        .bindTooltip((v === 'reach' ? 'Injury' : 'Fatal') + ' collisions within a ' + D.reach_min + '-minute drive of this road: <b>' +
+          x.toLocaleString('en-GB') + '</b>', {sticky: true}).addTo(layer); });
+    const e = [vals[0], ...br, vals[vals.length - 1]];
+    lg = '<b>' + (v === 'reach' ? 'Road collisions' : 'Fatal road collisions') + ' within a ' + (D.reach_min || 30) + '-minute drive</b><br>';
+    for (let k = 0; k <= br.length && vals.length; k++) lg += '<i style="background:' + idc(k) + '"></i>' + e[k].toLocaleString('en-GB') + ' to ' + e[k + 1].toLocaleString('en-GB') + '<br>';
+    lg += '<span style="color:#777">from each road: collisions over the last 5 years on all roads reachable within ' +
+      (D.reach_min || 30) + ' minutes at typical (free-flow) speeds; eighths of the roads shown' +
+      (v === 'reachf' ? '; fatal = collisions in which someone died (STATS19 severity 1)' : '') + '</span>';
   } else if (v === 'route') {
     faint();
     D.links.filter(l => l[5]).forEach(l => L.polyline(pl(l[0]), {color: '#d7191c', weight: 5}).addTo(layer));
@@ -355,15 +556,20 @@ function draw() {
 }
 function show(name) {
   cur = name; note.textContent = '';
-  const go = () => { map.fitBounds(window.NET[name].box); draw(); };
-  if (window.NET[name]) return go();
-  const s = document.createElement('script'); s.src = 'network_data/' + name + '.js'; s.onload = go;
-  s.onerror = () => alert('Could not load network_data/' + name + '.js - run 04_visualise.py'); document.body.appendChild(s);
+  const go = () => { map.fitBounds(window.NET[name].box); drawBg(); draw(); };
+  const load = (src, ok, required) => { const s = document.createElement('script'); s.src = src; s.onload = ok;
+    s.onerror = () => { if (required) alert('Could not load ' + src + ' - run 04_visualise.py'); else ok(); };
+    document.body.appendChild(s); };
+  // network data, plus the mini map explorer's layer data for the same square (optional)
+  const bg = () => window.MINIMAP[name] || !ML.length ? go() : load('minimap_data/' + name + '.js' + VER, go, false);
+  if (window.NET[name]) return bg();
+  load('network_data/' + name + '.js' + VER, bg, true);
 }
 document.getElementById('bg').onchange = e => { if (tiles) e.target.checked ? tiles.addTo(map) : map.removeLayer(tiles); };
 locSel.onchange = () => show(locSel.value); view.onchange = draw;
 const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).map(kv => kv.split('=').map(decodeURIComponent)));
 if (H.loc && M.locations.some(l => l.name === H.loc)) locSel.value = H.loc;
 if (H.view) view.value = H.view;
+if (H.layers === 'all') Object.values(checks).forEach(c => c.checked = true);
 show(locSel.value);
 </script></body></html>"""

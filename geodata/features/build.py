@@ -202,7 +202,7 @@ def run_landcover(F: Features, cfg, data_dir, grid, bbox_pad):
         for r, v in res.items():
             area_km2 = disc_cells(r, grid.res) * grid.res ** 2 / 1e6
             F.add(f"{name}_km_per_km2_{_r(r)}", np.round(v / 1000 / area_km2, 3), "landcover",
-                  f"km of {name} per kmÂ² within {r} m")
+                  f"km of {name} per km² within {r} m")
 
 
 def run_network(F: Features, cfg, data_dir, full, bbox_pad):
@@ -341,9 +341,9 @@ def run_assign(F: Features, cfg, data_dir, full):
 
 CLIMATE_VARS = {   # HadUK-Grid annual variable -> (column stem, description)
     "rainfall": ("rainfall_mm", "annual rainfall (mm)"),
-    "tas": ("temp_mean_c", "mean air temperature (Â°C)"),
-    "tasmax": ("temp_max_c", "mean daily maximum temperature (Â°C)"),
-    "tasmin": ("temp_min_c", "mean daily minimum temperature (Â°C)"),
+    "tas": ("temp_mean_c", "mean air temperature (°C)"),
+    "tasmax": ("temp_max_c", "mean daily maximum temperature (°C)"),
+    "tasmin": ("temp_min_c", "mean daily minimum temperature (°C)"),
     "sun": ("sunshine_hours", "annual sunshine (hours)"),
     "groundfrost": ("ground_frost_days", "days with ground frost"),
     "airfrost": ("air_frost_days", "days with air frost"),
@@ -402,7 +402,7 @@ def run_climate(F: Features, cfg, data_dir):
     with np.errstate(all="ignore"):
         if "tasmax" in per_var and "tasmin" in per_var:
             F.add("climate_temp_range_c", np.round(np.nanmean(per_var["tasmax"] - per_var["tasmin"], axis=1), 2),
-                  "climate", f"mean daily max minus min temperature, {span} (Â°C): high inland, low on coasts")
+                  "climate", f"mean daily max minus min temperature, {span} (°C): high inland, low on coasts")
         if "rainfall" in per_var and per_var["rainfall"].shape[1] > 1:
             r = per_var["rainfall"]
             F.add("climate_rainfall_cv", np.round(np.nanstd(r, axis=1) / np.nanmean(r, axis=1), 3), "climate",
@@ -410,7 +410,7 @@ def run_climate(F: Features, cfg, data_dir):
         if "tas" in per_var and per_var["tas"].shape[1] > 1:
             tas = per_var["tas"]
             F.add(f"climate_temp_change_{years[-1]}_c", np.round(tas[:, -1] - np.nanmean(tas[:, :-1], axis=1), 2),
-                  "climate", f"mean temperature in {years[-1]} minus the average of {years[0]}-{years[-2]} (Â°C)")
+                  "climate", f"mean temperature in {years[-1]} minus the average of {years[0]}-{years[-2]} (°C)")
     log.info("climate: %s postcodes had no land cell within %s m", f"{int(far.sum()):,}",
              cc.get("max_distance_m", 2000))
 
@@ -569,14 +569,67 @@ def run_neighbours(F: Features, cfg, data_dir, full, pop, crime_tab):
             crime_tab["crime_rate_lsoa_total"].take(pc.index_in(codes, value_set=crime_tab["lsoa21cd"])),
             pa.float64()).to_numpy(zero_copy_only=False)
     out = {key: codes}
+    notes = {}
+    # collisions per LSOA (STATS19 points located in the LSOA polygons), as annual rates per resident
+    coll = _collision_counts(data_dir, nb.get("collisions") or {}, gdf.geometry.values)
+    min_pop = float((nb.get("collisions") or {}).get("min_population", 100))
+    if coll:
+        years = coll.pop("_years")
+        for m, cnt in coll.items():
+            with np.errstate(invalid="ignore", divide="ignore"):
+                own = np.where(w >= min_pop, 1000 * cnt / years / w, np.nan)
+            out[f"{m}_per_1000_res_yr_lsoa"] = pa.array(np.round(own, 3))
+            notes[f"{m}_per_1000_res_yr_lsoa"] = COLLISION_NOTES[m] + f" per 1,000 residents per year in the LSOA ({years} years of STATS19)"
     for k in nb.get("steps", [1, 2, 5]):
         M = adjacency.k_step(A, int(k))
         out[f"lsoa_neighbours_{k}step_n"] = pa.array(np.diff(M.indptr))
         out[f"lsoa_neighbours_{k}step_population"] = pa.array(np.round(adjacency.neighbourhood_sum(M, w), 0))
         for name, v in vars_.items():
             out[f"{name}_nbhd_{k}step"] = pa.array(np.round(adjacency.neighbourhood_mean(M, v, w), 3))
+        if coll:   # pooled: all collisions in the neighbourhood / all its residents
+            pw = adjacency.neighbourhood_sum(M, w)
+            for m, cnt in coll.items():
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    r = np.where(pw >= min_pop, 1000 * adjacency.neighbourhood_sum(M, cnt) / years / pw, np.nan)
+                c = f"{m}_per_1000_res_yr_nbhd_{k}step"
+                out[c] = pa.array(np.round(r, 3))
+                notes[c] = (COLLISION_NOTES[m] + f" per 1,000 residents per year across the LSOAs within {k} "
+                            f"boundar{'y' if k == 1 else 'ies'} (own included, road bridges count): all of them "
+                            f"divided by all their residents")
     _lookup_by_area(F, pa.table(out), key, "neighbours",
-                    {c: "population-weighted mean over LSOAs within k boundaries (incl. own)" for c in out})
+                    {c: notes.get(c, "population-weighted mean over LSOAs within k boundaries (incl. own)") for c in out})
+
+
+COLLISION_NOTES = {"collisions": "Road collisions", "collisions_ksi": "Fatal or serious road collisions",
+                   "casualties": "Road casualties"}
+
+
+def _collision_counts(data_dir, ccfg: dict, polys) -> dict | None:
+    """Collisions, fatal/serious collisions and casualties per area (point in polygon)."""
+    if not ccfg.get("file"):
+        return None
+    f = data_dir / "extract" / ccfg["file"]
+    if not f.exists():
+        log.warning("neighbours: collisions skipped - %s missing", ccfg["file"])
+        return None
+    import shapely
+    t = pq.read_table(f, columns=["easting", "northing", "collision_severity", "number_of_casualties", "collision_year"])
+    x = pc.cast(t["easting"], pa.float64()).to_numpy(zero_copy_only=False)
+    y = pc.cast(t["northing"], pa.float64()).to_numpy(zero_copy_only=False)
+    ok = np.isfinite(x) & np.isfinite(y)
+    p_idx, a_idx = shapely.STRtree(polys).query(shapely.points(x[ok], y[ok]), predicate="within")
+    area = np.full(ok.sum(), -1)
+    area[p_idx] = a_idx
+    sev = pc.fill_null(t["collision_severity"], 3).to_numpy()[ok]
+    cas = pc.fill_null(t["number_of_casualties"], 0).to_numpy().astype("f8")[ok]
+    inn = area >= 0
+    n = len(polys)
+    years = len(set(t["collision_year"].to_pylist()) - {None}) or 1
+    log.info("neighbours: %s collisions over %d years located in LSOAs", f"{int(inn.sum()):,}", years)
+    return {"collisions": np.bincount(area[inn], minlength=n).astype("f8"),
+            "collisions_ksi": np.bincount(area[inn & (sev <= 2)], minlength=n).astype("f8"),
+            "casualties": np.bincount(area[inn], weights=cas[inn], minlength=n),
+            "_years": years}
 
 
 # ------------------------------------------------------------------ driver

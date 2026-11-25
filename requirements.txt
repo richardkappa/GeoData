@@ -20,4 +20,5 @@ scikit-learn
 matplotlib
 libpysal
 networkx
+h3>=4                  # Uber H3 hexagons for the choropleths
 ipykernel

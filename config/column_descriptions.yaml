@@ -9,7 +9,135 @@
 # in the NSPL zip (Documents/User Guide).
 # =============================================================================
 
+# catalogues: tables mapping each column to its source description (path relative to
+# the extract folder; `template` uses the catalogue's columns, plus {category} = the
+# source category without the trailing "; measures: Value")
+catalogues:
+  - file: census_2021/census_2021_catalogue.parquet
+    key: column
+    template: "Census 2021 {table} {title} - {category}. Count for the postcode's output area (England and Wales)"
+
 columns:
+  # --- Ofcom Connected Nations fixed broadband (postcode, all premises) ------
+  bb_of_premises_with_0_2mbit_s_download_speed: Share of premises (%) whose best available download speed is under 2 Mbit/s (Ofcom Connected Nations, postcode)
+  bb_of_premises_with_2_5mbit_s_download_speed: Share of premises (%) whose best available download speed is 2 to 5 Mbit/s (Ofcom, postcode)
+  bb_of_premises_with_5_10mbit_s_download_speed: Share of premises (%) whose best available download speed is 5 to 10 Mbit/s (Ofcom, postcode)
+  bb_of_premises_with_10_30mbit_s_download_speed: Share of premises (%) whose best available download speed is 10 to 30 Mbit/s (Ofcom, postcode)
+  bb_of_premises_with_30_300mbit_s_download_speed: Share of premises (%) whose best available download speed is 30 to 300 Mbit/s (Ofcom, postcode)
+  bb_of_premises_with_300mbit_s_download_speed: Share of premises (%) that can get 300 Mbit/s or more (Ofcom, postcode)
+  bb_sfbb_availability_premises: Share of premises (%) that can get superfast broadband (30 Mbit/s or more) (Ofcom, postcode)
+  bb_ufbb_100mbit_s_availability_premises: Share of premises (%) that can get ultrafast broadband of 100 Mbit/s or more (Ofcom, postcode)
+  bb_ufbb_availability_premises: Share of premises (%) that can get ultrafast broadband (300 Mbit/s or more) (Ofcom, postcode)
+  bb_gigabit_availability_premises: Share of premises (%) that can get gigabit-capable broadband (1 Gbit/s) (Ofcom, postcode)
+  bb_of_premises_unable_to_receive_2mbit_s: Share of premises (%) that cannot get 2 Mbit/s download (Ofcom, postcode)
+  bb_of_premises_unable_to_receive_5mbit_s: Share of premises (%) that cannot get 5 Mbit/s download (Ofcom, postcode)
+  bb_of_premises_unable_to_receive_10mbit_s: Share of premises (%) that cannot get 10 Mbit/s download (Ofcom, postcode)
+  bb_of_premises_unable_to_receive_30mbit_s: Share of premises (%) that cannot get 30 Mbit/s download (Ofcom, postcode)
+  bb_of_premises_below_the_uso: Share of premises (%) below the broadband Universal Service Obligation (10 Mbit/s down, 1 Mbit/s up) (Ofcom, postcode)
+  bb_of_premises_with_nga: Share of premises (%) with next-generation access (30 Mbit/s or more over fibre or cable) (Ofcom, postcode)
+  bb_of_premises_able_to_receive_decent_broadband_from_fwa: Share of premises (%) that can get decent broadband (10 Mbit/s) from fixed wireless access (Ofcom, postcode)
+  # --- Ofcom mobile coverage (the postcode's local authority) ---------------
+  mob_4g_outdoor_all_operators_pct: Share of premises (%) in the postcode's local authority with outdoor 4G from all operators (Ofcom Connected Nations)
+  mob_4g_indoor_all_operators_pct: Share of premises (%) in the postcode's local authority with indoor 4G from all operators (Ofcom)
+  mob_4g_indoor_none_pct: Share of premises (%) in the postcode's local authority with no indoor 4G from any operator (Ofcom)
+  mob_4g_landmass_all_operators_pct: Share of the local authority's land area (%) with outdoor 4G from all operators (Ofcom)
+  mob_4g_landmass_none_pct: Share of the local authority's land area (%) with no outdoor 4G from any operator (Ofcom)
+  mob_voice_indoor_all_operators_pct: Share of premises (%) in the postcode's local authority with indoor voice calls from all operators (Ofcom)
+  mob_voice_indoor_none_pct: Share of premises (%) in the postcode's local authority with no indoor voice signal (Ofcom)
+  mob_5g_outdoor_any_operator_pct: Share of premises (%) in the postcode's local authority with outdoor 5G (high confidence) from at least one operator (Ofcom)
+  mob_5g_outdoor_all_operators_pct: Share of premises (%) in the postcode's local authority with outdoor 5G (high confidence) from all operators (Ofcom)
+  mob_4g_a_b_roads_in_car_all_operators_pct: Share of A and B road length (%) in the local authority with in-car 4G from all operators (Ofcom)
+  # --- Environment Agency: Risk of Flooding from Rivers and Sea (postcodes in risk areas)
+  rofrs_cntpc: Number of properties in the postcode (EA Risk of Flooding from Rivers and Sea; only postcodes with properties at risk are listed, England)
+  rofrs_res_cntpc: Number of residential properties in the postcode (EA RoFRS, England)
+  rofrs_nrp_cntpc: Number of non-residential properties in the postcode (EA RoFRS, England)
+  rofrs_unc_cntpc: Number of unclassified properties in the postcode (EA RoFRS, England)
+  flood_high_cnt: Properties in the postcode at high flood risk (EA flood risk postcode search data, England)
+  flood_med_cnt: Properties in the postcode at medium flood risk (EA postcode search data, England)
+  flood_low_cnt: Properties in the postcode at low flood risk (EA postcode search data, England)
+  flood_gwtr_risk: "Groundwater flooding risk for the postcode: Unlikely or Possible (EA postcode search data, England)"
+  # --- Land Registry (summary of standard sales in the postcode) -----------
+  lr_sales: Number of standard (category A) residential sales in the postcode over the extracted period (Land Registry Price Paid, England and Wales)
+  lr_median_price: Median price (£) of those sales
+  lr_last_sale_date: Date of the most recent of those sales
+  lr_share_detached: Share of those sales that were detached houses (0 to 1)
+  lr_share_semi: Share of those sales that were semi-detached houses (0 to 1)
+  lr_share_terraced: Share of those sales that were terraced houses (0 to 1)
+  lr_share_flat: Share of those sales that were flats or maisonettes (0 to 1)
+  lr_share_other: Share of those sales of other property types (0 to 1)
+  # --- Food Standards Agency (businesses in the postcode) ------------------
+  fsa_count: Number of food businesses in the postcode rated by the FSA hygiene scheme
+  fsa_count_takeaway: Number of takeaways and sandwich shops in the postcode (FSA)
+  fsa_count_restaurant: Number of restaurants, cafes and canteens in the postcode (FSA)
+  fsa_count_pub_club: Number of pubs, bars and nightclubs in the postcode (FSA)
+  fsa_count_retail: Number of food retailers (shops and supermarkets) in the postcode (FSA)
+  fsa_mean_rating_numeric: Mean food hygiene rating (0 to 5) of the rated businesses in the postcode (FSA; Scotland uses a pass/improve scheme and has no number)
+  # --- CQC ---------------------------------------------------------------------
+  cqc_count: Number of active CQC-registered care locations in the postcode (England)
+  cqc_count_care_home: Number of those that are care homes
+  cqc_sum_care_home_beds: Total care home beds in the postcode (CQC, England)
+  # --- section 3 neighbourhood counts --------------------------------------
+  crime_rate_lsoa_total: All recorded crime per 1,000 residents of the postcode's LSOA, last 12 months
+  # --- section 3 terrain -----------------------------------------------------
+  slope_deg: Ground slope at the postcode (degrees; 0 = flat), from the OS Terrain 50 height model
+  aspect_deg: Direction the ground at the postcode faces (degrees; 0 = north, 90 = east, 180 = south), from OS Terrain 50
+  elevation_m: Height of the postcode above sea level (m), from the OS Terrain 50 height model (Great Britain)
+
+  # --- point, line and area datasets used by section 3 (pt_<name>), referred to by the
+  # density, rate, distance, walking-time and land-cover patterns below ---------
+  pt_crimes: recorded crimes (police.uk street-level crime, the 24 months extracted)
+  pt_burglary: burglaries (police.uk, the 24 months extracted)
+  pt_violent_crime: violent and sexual offences (police.uk, the 24 months extracted)
+  pt_antisocial: anti-social behaviour incidents (police.uk, the 24 months extracted)
+  pt_vehicle_crime: vehicle crimes (police.uk, the 24 months extracted)
+  pt_stop_search: police stop and searches (police.uk, the 24 months extracted)
+  pt_collisions: road collisions with injuries (DfT STATS19, the last 5 years)
+  pt_collisions_ksi: fatal or serious road collisions (DfT STATS19, the last 5 years)
+  pt_schools: open schools of any kind (DfE Get Information about Schools)
+  pt_primary_schools: primary schools (DfE Get Information about Schools)
+  pt_secondary_schools: secondary and all-through schools (DfE Get Information about Schools)
+  pt_rail_stations: railway stations (DfT NaPTAN)
+  pt_bus_stops: bus and coach stops (DfT NaPTAN)
+  pt_metro_tram: metro, underground and tram stops (DfT NaPTAN)
+  pt_ferry_terminals: ferry terminals (DfT NaPTAN)
+  pt_airports: airports (DfT NaPTAN)
+  pt_motorway_junctions: motorway junctions (OS Open Roads)
+  pt_listed_buildings: listed buildings (Historic England, England only)
+  pt_gp_practices: GP practices (NHS ODS, England and Wales)
+  pt_pharmacies: pharmacies (NHS ODS, England and Wales)
+  pt_dentists: dental practices (NHS ODS, England and Wales)
+  pt_hospitals_ae: NHS acute general hospitals, the usual sites of A&E departments (CQC, England only)
+  pt_care_homes: care homes (CQC, England only)
+  pt_takeaways: takeaways and sandwich shops (Food Standards Agency hygiene ratings)
+  pt_pubs_bars: pubs, bars and nightclubs (Food Standards Agency hygiene ratings)
+  pt_restaurants_cafes: restaurants, cafes and canteens (Food Standards Agency hygiene ratings)
+  pt_supermarkets: supermarkets and hypermarkets (Food Standards Agency hygiene ratings)
+  pt_park_entrances: entrances to parks and other greenspaces (OS Open Greenspace access points)
+  pt_property_sales: standard residential house sales (Land Registry Price Paid, since January 2020)
+  pt_sales: standard residential house sales (Land Registry Price Paid, since January 2020)
+  pt_motorway: motorway (OS Open Roads)
+  pt_a_road: A road (OS Open Roads)
+  pt_river: river (OS Open Rivers)
+  pt_tidal_river: tidal river or estuary (OS Open Rivers)
+  pt_canal: canal (OS Open Rivers)
+  pt_lake: lake (OS Open Rivers centre-lines)
+  pt_coast: coastline (from the ONS country boundaries; includes the Northern Ireland land border)
+  pt_greenspace: greenspace of any kind - parks, playing fields, allotments, cemeteries (OS Open Greenspace)
+  pt_public_park: public park or garden (OS Open Greenspace)
+  pt_playing_field: playing field (OS Open Greenspace)
+  pt_ancient_woodland: ancient woodland (Natural England inventory, England only)
+  pt_woodland: woodland (OS Open Zoomstack)
+  pt_surface_water: surface water - lakes, reservoirs and wide rivers (OS Open Zoomstack)
+  pt_national_park: national park (ONS boundaries)
+  pt_aonb: National Landscape, formerly Area of Outstanding Natural Beauty (Natural England, England only)
+  pt_built_up_area: built-up area (OS Open Built Up Areas)
+  pt_built_up: built-up area (OS Open Built Up Areas)
+  pt_roads: all roads (OS Open Roads)
+  pt_major_roads: motorways and A roads (OS Open Roads)
+  pt_residents: residents (Census 2021 counts shared across each output area's postcodes by their addresses)
+  pt_households: households (Census 2021 counts shared across each output area's postcodes by their addresses)
+  pt_addresses: addresses (UPRNs from the ONS National Statistics UPRN Lookup)
+
   # --- ONS National Statistics Postcode Lookup (NSPL) ------------------------
   postcode_ns: Postcode in upper case with all spaces removed (e.g. SW1A1AA); the primary key of every table
   pcds: "Postcode as normally written: outward code, one space, inward code (e.g. SW1A 1AA)"
@@ -28,7 +156,7 @@ columns:
   lsoa21cd: 2021 Census lower layer super output area (Data Zone in Scotland, Super Data Zone in Northern Ireland)
   msoa21cd: 2021 Census middle layer super output area (Intermediate Zone in Scotland)
   lad26cd: Local authority district (unitary authority, district, metropolitan district, London borough, council area)
-  wd26cd: Electoral ward or division
+  wd26cd: Electoral ward or division code (2026 boundaries, ONS NSPL)
   ctry26cd: Country (England, Wales, Scotland, Northern Ireland, Channel Islands, Isle of Man)
   rgn26cd: English region (former Government Office Region); pseudo codes outside England
   pcon24cd: Westminster parliamentary constituency (2024 boundaries)
@@ -37,17 +165,17 @@ columns:
   ruc21ind: 2021 Census rural-urban classification of the output area (England and Wales; 2022 for Scotland)
   oac21ind: 2021 Census output area classification (OAC) - supergroup, group and subgroup code, e.g. 1a1
   imd25ind: "Index of Multiple Deprivation rank of the postcode's LSOA (1 = most deprived); England 2025 and Wales; 0 where not available"
-  pfa23cd: Police force area
+  pfa23cd: Police force area code (2023 boundaries, ONS NSPL)
   icb26cd: Integrated Care Board (NHS England); pseudo codes outside England
   ttwa15cd: Travel to work area (2015 definitions from 2011 Census commuting)
   itl25cd: International Territorial Level local area (LAU1 equivalent, former NUTS)
   # --- names added from ONS boundaries ---------------------------------------
-  lad26nm: Local authority district name
-  msoa21nm: MSOA name (2021 Census)
-  lsoa21nm: LSOA name (2021 Census)
+  lad26nm: Local authority district name (2026 boundaries, ONS)
+  msoa21nm: Middle layer super output area name (2021 Census, ONS), e.g. "Bath and North East Somerset 012"
+  lsoa21nm: Lower layer super output area name (2021 Census, ONS), e.g. "Bath and North East Somerset 012A"
   lsoa_rural_urban: Rural-urban classification of the postcode's LSOA (2021, England and Wales)
-  rgn_name: Region name (England)
-  ctry_name: Country name
+  rgn_name: English region name (former Government Office Region); blank outside England
+  ctry_name: Country name (England, Wales, Scotland, Northern Ireland)
   pcon24nm: Westminster parliamentary constituency name (2024 boundaries)
   lad19cd: Local authority district as at December 2019 (for the Ordnance Survey 2019 equal-area cartogram)
   uprn_count: Number of addresses (UPRNs) in the postcode, from the ONS National Statistics UPRN Lookup
@@ -96,6 +224,39 @@ columns:
   clim_min_temp_c: Mean daily minimum temperature (°C), 1991-2020 average (12 km grid)
 
 patterns:
+  # first match wins, so the most specific patterns come first
+  # --- section 3 neighbourhoods (before the patterns of the measures they average)
+  - ['^lsoa_neighbours_(\d)step_n$', 'Number of LSOAs within {1} boundaries of the postcode''s LSOA (own included; areas joined by a road bridge count as neighbours)']
+  - ['^lsoa_neighbours_(\d)step_population$', 'Residents of the LSOAs within {1} boundaries of the postcode''s LSOA (Census 2021)']
+  - ['^(.+)_nbhd_(\d)step$', '{ref:{raw1}} - population-weighted average over the postcode''s LSOA and the LSOAs up to {2} boundary steps away']
+  # --- section 3 densities, rates, distances, land cover, travel (built from pt_<name>)
+  - ['^(residents|households|addresses)_within_(\d+)(km|m)$', 'Estimated number of {ref:pt_{raw1}} within {2} {3} of the postcode']
+  - ['^(.+)_within_(\d+)min_walk$', 'Number of {ref:pt_{raw1}} that can be reached within a {2}-minute walk of the postcode (street network, 4.8 km/h)']
+  - ['^(.+)_within_(\d+)(km|m)$', 'Number of {ref:pt_{raw1}} within {2} {3} of the postcode (straight line)']
+  - ['^(.+)_per_(\d+)_(residents|households|addresses)_(\d+)(km|m)$', 'Rate: {ref:pt_{raw1}} within {4} {5} of the postcode per {2} {3} within the same {4} {5} (blank where there are fewer than 50 {3})']
+  - ['^dist_(.+)_2nd_m$', 'Straight-line distance (m) from the postcode to the second-nearest of the {ref:pt_{raw1}} (a measure of choice)']
+  - ['^dist_(greenspace|public_park|playing_field|ancient_woodland|national_park|aonb|built_up_area)_m$', 'Straight-line distance (m) from the postcode to the nearest {ref:pt_{raw1}}; 0 if the postcode is inside one']
+  - ['^dist_(motorway|a_road|river|tidal_river|canal|lake|coast)_m$', 'Straight-line distance (m) from the postcode to the nearest {ref:pt_{raw1}} (the line is sampled every 25 m)']
+  - ['^dist_(.+)_m$', 'Straight-line distance (m) from the postcode to the nearest of the {ref:pt_{raw1}}']
+  - ['^share_(.+)_(\d+)(km|m)$', 'Share of the land within {2} {3} of the postcode that is {ref:pt_{raw1}} (0 to 1, measured on a 100 m grid)']
+  - ['^(roads|major_roads)_km_per_km2_(\d+)(km|m)$', 'Length of {ref:pt_{raw1}} per square km within {2} {3} of the postcode (km per km²)']
+  - ['^walk_(.+)_m$', 'Walking distance (m) over the street network from the postcode to the nearest of the {ref:pt_{raw1}} (motorways excluded)']
+  - ['^walk_(.+)_min$', 'Walking time (minutes at 4.8 km/h over the street network, motorways excluded) from the postcode to the nearest of the {ref:pt_{raw1}}']
+  - ['^drive_(.+)_min$', 'Driving time (minutes, free-flowing traffic at typical speeds for each road class, OS Open Roads) from the postcode to the nearest of the {ref:pt_{raw1}}']
+  - ['^relative_height_(\d+)m$', 'Height of the postcode minus the average ground height on a ring {1} m away (m): positive = on a rise, negative = in a hollow or valley (OS Terrain 50)']
+  # --- Ofcom residential-only versions reuse the all-premises description ----
+  - ['^bb_res_(.+)$', 'Residential premises only: {ref:bb_{raw1}}']
+  # --- EA RoFRS counts by likelihood band --------------------------------------
+  - ['^rofrs_res_cnt_(verylow|low|medium|high)$', 'Residential properties in the postcode in the {1} rivers and sea flood likelihood band (EA RoFRS, England; high = 3.3% or more chance a year, medium = 1-3.3%, low = 0.1-1%, very low = under 0.1%)']
+  - ['^rofrs_nrp_cnt_(verylow|low|medium|high)$', 'Non-residential properties in the postcode in the {1} rivers and sea flood likelihood band (EA RoFRS, England)']
+  - ['^rofrs_unc_cnt_(verylow|low|medium|high)$', 'Unclassified properties in the postcode in the {1} rivers and sea flood likelihood band (EA RoFRS, England)']
+  - ['^rofrs_tot_cnt_(verylow|low|medium|high)$', 'All properties in the postcode in the {1} rivers and sea flood likelihood band (EA RoFRS, England; high = 3.3% or more chance a year, medium = 1-3.3%, low = 0.1-1%, very low = under 0.1%)']
+  # --- police: crimes in the postcode's LSOA (collate) and rates (features) ------
+  - ['^crimes_total$', 'All recorded crimes in the postcode''s LSOA over the last 12 months (police.uk street-level crime)']
+  - ['^crimes_(.+)$', 'Recorded crimes of type "{1}" in the postcode''s LSOA over the last 12 months (police.uk)']
+  - ['^crime_rate_lsoa_total$', 'All recorded crime per 1,000 residents of the postcode''s LSOA, last 12 months']
+  - ['^crime_rate_lsoa_(.+)$', 'Recorded crimes of type "{1}" per 1,000 residents of the postcode''s LSOA, last 12 months']
+  # --- section 3 neighbourhoods ----------------------------------------------
   # --- English Indices of Deprivation 2025 (LSOA) ----------------------------
   - ['^imd_index_of_multiple_deprivation_imd_score$', 'Index of Multiple Deprivation 2025 score of the LSOA (higher = more deprived; England)']
   - ['^imd_index_of_multiple_deprivation_imd_rank$', 'Index of Multiple Deprivation 2025 rank of the LSOA (1 = most deprived of 33,755; England)']

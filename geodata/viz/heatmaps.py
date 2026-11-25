@@ -49,21 +49,24 @@ const map = L.map('map').setView([54.3, -2.5], 6);
 __TILES__
 let tiles = null; map.eachLayer(l => { if (l instanceof L.TileLayer) tiles = l; });
 const ds = document.getElementById('ds'), mx = document.getElementById('mx'), rad = document.getElementById('rad');
-{ const g1 = document.createElement('optgroup'), g2 = document.createElement('optgroup');
-  g1.label = 'Where things are (counts)'; g2.label = 'Rates per head of population';
-  M.datasets.forEach(d => (d.kind === 'rate' ? g2 : g1).appendChild(new Option(d.label + (d.kind === 'rate' ? '' : ' (' + d.points.toLocaleString('en-GB') + ')'), d.name)));
-  ds.appendChild(g1); if (g2.children.length) ds.appendChild(g2); }
+{ const groups = {count: 'Where things are (counts)', rate: 'Rates per head of population', value: 'Access (averages by square)'};
+  const og = {}; Object.entries(groups).forEach(([k, l]) => { og[k] = document.createElement('optgroup'); og[k].label = l; });
+  M.datasets.forEach(d => { const k = d.kind || 'count';
+    og[k].appendChild(new Option(d.label + (k === 'count' ? ' (' + d.points.toLocaleString('en-GB') + ')' : ''), d.name)); });
+  Object.values(og).forEach(g => { if (g.children.length) ds.appendChild(g); }); }
 const RPAL = ["#ffffb2","#fed976","#feb24c","#fd8d3c","#fc4e2a","#e31a1c","#bd0026","#800026"];
+const VPAL = ["#1a9850","#66bd63","#a6d96a","#d9ef8b","#fee08b","#fdae61","#f46d43","#d73027"];   // short (good) -> long
 let heat = null;
 const metaOf = () => M.datasets.find(d => d.name === ds.value);
 const legend = L.control({position: 'bottomright'});
 legend.onAdd = () => { const d = L.DomUtil.create('div', 'legend'); d.id = 'legend'; return d; };
 legend.addTo(map);
-function drawRate(D, meta) {   // smoothed rate per head: coloured squares, eighths of the cells
+function drawRate(D, meta) {   // rate per head or square average: coloured squares, eighths of the cells
+  const P = meta.kind === 'value' ? (meta.low_good ? VPAL : VPAL.slice().reverse()) : RPAL;
   const v = D.cells.map(c => c[4]).sort((a, b) => a - b), q = p => v[Math.min(v.length - 1, Math.floor(p * v.length))];
-  const br = [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))];
-  const idx = k => Math.round(k * (RPAL.length - 1) / Math.max(br.length, 1));
-  const col = x => { let k = 0; while (k < br.length && x > br[k]) k++; return RPAL[idx(k)]; };
+  const br = meta.breaks || [...new Set([1, 2, 3, 4, 5, 6, 7].map(k => q(k / 8)))];   // fixed bands if configured
+  const idx = k => Math.round(k * (P.length - 1) / Math.max(br.length, 1));
+  const col = x => { let k = 0; while (k < br.length && x > br[k]) k++; return P[idx(k)]; };
   heat = L.layerGroup();
   const r = L.canvas();
   D.cells.forEach(c => { const k = col(c[4]);   // hairline outline in the same colour closes seams between squares
@@ -72,15 +75,19 @@ function drawRate(D, meta) {   // smoothed rate per head: coloured squares, eigh
   heat.addTo(map);
   const e = [v[0], ...br, v[v.length - 1]];
   let h = '<b>' + meta.label + '</b><br>';
-  for (let k = 0; k <= br.length; k++) h += '<i style="display:inline-block;width:14px;height:12px;margin-right:6px;background:' + RPAL[idx(k)] +
-    '"></i>' + (+e[k].toPrecision(3)).toLocaleString('en-GB') + ' to ' + (+e[k + 1].toPrecision(3)).toLocaleString('en-GB') + '<br>';
-  document.getElementById('legend').innerHTML = h + '<span style="color:#777">eighths of the populated squares. ' + meta.note + '</span>';
-  document.getElementById('note').textContent = D.cells.length.toLocaleString('en-GB') + ' populated squares';
+  const f3 = x => (+x.toPrecision(3)).toLocaleString('en-GB');
+  for (let k = 0; k <= br.length; k++) {   // fixed bands: open-ended first and last rows
+    const lab = meta.breaks ? (k === 0 ? 'below ' + f3(br[0]) : k === br.length ? f3(br[k - 1]) + ' or more' : f3(br[k - 1]) + ' to ' + f3(br[k]))
+                            : f3(e[k]) + ' to ' + f3(e[k + 1]);
+    h += '<i style="display:inline-block;width:14px;height:12px;margin-right:6px;background:' + P[idx(k)] + '"></i>' + lab + '<br>';
+  }
+  document.getElementById('legend').innerHTML = h + '<span style="color:#777">' + (meta.breaks ? '' : 'eighths of the populated squares. ') + meta.note + '</span>';
+  document.getElementById('note').textContent = D.cells.length.toLocaleString('en-GB') + (meta.kind === 'value' ? ' squares with postcodes' : ' populated squares');
 }
 function draw() {
   const D = window.HEAT[ds.value]; if (!D) return;
   if (heat) map.removeLayer(heat);
-  const meta0 = metaOf(), isRate = meta0.kind === 'rate';
+  const meta0 = metaOf(), isRate = meta0.kind === 'rate' || meta0.kind === 'value';
   mx.disabled = isRate; rad.disabled = isRate; help();
   if (isRate) return drawRate(D, meta0);
   const w = D.pts.map(p => p[2]).sort((a, b) => a - b);
@@ -95,6 +102,12 @@ function draw() {
 }
 function help() {   // plain-English explanation of the two controls, kept in step with the choices
   const m = metaOf();
+  if (m && m.kind === 'value') {
+    document.getElementById('help').innerHTML = '<b>Access</b>: ' + (m.help || 'how long it takes to walk from home to ' +
+      'the nearest one, over the street network at 4.8 km/h; green is a short walk, red a long one.') + ' Each square ' +
+      'shows the ' + m.note + '. Spread and hot spot level do not apply here.';
+    return;
+  }
   if (m && m.kind === 'rate') {
     document.getElementById('help').innerHTML = '<b>Rate per head</b>: instead of where things happen, this shows how often ' +
       'they happen for the number of people living there, so busy city centres no longer dominate just because many people ' +
@@ -125,6 +138,47 @@ const H = Object.fromEntries(location.hash.slice(1).split('&').filter(Boolean).m
 if (H.ds && M.datasets.some(d => d.name === H.ds)) ds.value = H.ds;
 load();
 </script></body></html>"""
+
+
+def _value_maps(vcfg: dict, data_dir: Path, hd: Path, to_ll) -> list[dict]:
+    """A postcode value (e.g. walking time to a station) averaged over national grid squares,
+    weighted by addresses, drawn as coloured squares."""
+    if not vcfg.get("datasets"):
+        return []
+    import pyarrow.compute as pc
+    from .cartograms import _postcode_table
+    cell = float(vcfg.get("cell_m", 1000))
+    specs = {c: (v if isinstance(v, dict) else {"label": v}) for c, v in vcfg["datasets"].items()}
+    t = _postcode_table(data_dir, ["easting", "northing"], specs)
+    x = pc.cast(t["easting"], "float64").to_numpy(zero_copy_only=False)
+    y = pc.cast(t["northing"], "float64").to_numpy(zero_copy_only=False)
+    w = pc.fill_null(t["uprn_count"], 1).to_numpy().astype("f8") if "uprn_count" in t.column_names else np.ones(len(x))
+    w = np.where(w > 0, w, 1.0)
+    out = []
+    for col, spec in specs.items():
+        if col not in t.column_names:
+            log.warning("heatmaps: value %s not found - run 03_features.py", col)
+            continue
+        v = pc.cast(t[col], "float64").to_numpy(zero_copy_only=False)
+        ok = np.isfinite(v) & np.isfinite(x) & np.isfinite(y)
+        key = np.floor(x[ok] / cell).astype(np.int64) * 10_000_000 + np.floor(y[ok] / cell).astype(np.int64)
+        cells, inv = np.unique(key, return_inverse=True)
+        mean = np.bincount(inv, weights=v[ok] * w[ok]) / np.bincount(inv, weights=w[ok])
+        sx, sy = (cells // 10_000_000) * cell, (cells % 10_000_000) * cell
+        lon0, lat0 = to_ll.transform(sx, sy)
+        lon1, lat1 = to_ll.transform(sx + cell, sy + cell)
+        rows = [[round(a, 4), round(b, 4), round(c, 4), round(e, 4), float(f"{m:.3g}")]
+                for a, b, c, e, m in zip(lat0, lon0, lat1, lon1, mean)]
+        name = f"value_{col}"
+        (hd / f"{name}.js").write_text(f"window.HEAT[{json.dumps(name)}]=" + json.dumps({"cells": rows}, separators=(",", ":"))
+                                       + ";", encoding="utf-8")
+        out.append({"name": name, "label": spec["label"], "kind": "value", "points": int(ok.sum()),
+                    "low_good": bool(spec.get("low_is_good", True)), "breaks": spec.get("breaks"),
+                    "help": spec.get("help"),
+                    "note": (spec.get("note", "") + " " if spec.get("note") else "") +
+                    f"average of the postcodes in each {cell / 1000:g} km square, weighted by their number of addresses"})
+        log.info("heatmaps: value %s - %s squares", col, f"{len(rows):,}")
+    return out
 
 
 def _rate_maps(rcfg: dict, points: dict, data_dir: Path, full, hd: Path, to_ll) -> list[dict]:
@@ -237,8 +291,8 @@ def build_heatmaps(data_dir: Path, out_dir: Path, cfg: dict) -> Path | None:
                                        json.dumps({"pts": pts}, separators=(",", ":")) + ";", encoding="utf-8")
         meta.append({"name": name, "label": spec["label"], "points": int(len(P.x)), "note": spec.get("note", "")})
         log.info("heatmaps: %s - %s points in %s cells", name, f"{len(P.x):,}", f"{len(cells):,}")
-    rates = _rate_maps(cfg.get("rates") or {}, points, data_dir, full, hd, to_ll)
-    meta += rates
+    meta += _rate_maps(cfg.get("rates") or {}, points, data_dir, full, hd, to_ll)
+    meta += _value_maps(cfg.get("values") or {}, data_dir, hd, to_ll)
     if not meta:
         log.warning("heatmaps: no datasets - nothing written")
         return None

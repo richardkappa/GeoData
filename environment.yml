@@ -28,4 +28,5 @@ dependencies:
   - matplotlib
   - libpysal
   - networkx
+  - h3-py                # Uber H3 hexagons for the choropleths
   - ipykernel

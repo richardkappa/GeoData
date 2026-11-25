@@ -20,13 +20,23 @@ from . import PAGE_CSS, label, square, tile_js
 log = logging.getLogger(__name__)
 
 
+def var_label(spec) -> str:
+    """A variable's display label: config entries are a label or {label, countries, ...}."""
+    return str(spec.get("label", "")) if isinstance(spec, dict) else str(spec)
+
+
 def _area_table(data_dir: Path, box, variables: dict) -> tuple[pa.Table, dict]:
+    """Postcodes in the box with the variables; returns (table, {column: label}).
+    Variables with `countries:` are blanked outside the countries their source covers."""
     lookup_f = data_dir / "collate" / "postcode_lookup.parquet"
     feat_f = data_dir / "features" / "postcode_features.parquet"
     lnames = set(pq.read_schema(lookup_f).names)
     fnames = set(pq.read_schema(feat_f).names) if feat_f.exists() else set()
     x0, y0, x1, y1 = box
     base = ["pcds", "easting", "northing", "lat", "long"]
+    specs = {c: (v if isinstance(v, dict) else {"label": v}) for c, v in variables.items()}
+    if any(s.get("countries") for s in specs.values()) and "ctry26cd" in lnames:
+        base.append("ctry26cd")
     lt = pq.read_table(lookup_f, columns=[POSTCODE_KEY, *base, *(c for c in variables if c in lnames and c not in fnames)],
                        filters=[("easting", ">=", x0), ("easting", "<=", x1),
                                 ("northing", ">=", y0), ("northing", "<=", y1)])
@@ -37,7 +47,9 @@ def _area_table(data_dir: Path, box, variables: dict) -> tuple[pa.Table, dict]:
         idx = pc.index_in(lt[POSTCODE_KEY], value_set=ft[POSTCODE_KEY])
         for c in ft.column_names[1:]:
             lt = lt.append_column(c, ft[c].take(idx))
-    found = {c: l for c, l in variables.items() if c in lt.column_names}
+    from .cartograms import _mask_countries   # local import: cartograms imports this module
+    lt = _mask_countries(lt, specs)
+    found = {c: var_label(s) for c, s in specs.items() if c in lt.column_names}
     return lt, found
 
 
