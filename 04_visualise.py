@@ -42,30 +42,6 @@ def steps_explorer(steps) -> bool:
     return bool({"explorer", "minimaps", "networks"} & set(steps))
 
 
-NAV = re.compile(r'<a href="index\.html">(?:All visualisations|GeoData home)</a>(?: \| <a class="(?:site|repo)"[^>]*>[^<]*</a>)*')
-
-
-def _add_repo_link(out_dir: Path, url: str | None, site: str | None = None) -> None:
-    """Every page header links to the GeoData home page (index.html), the main website (`global.site_url`) and the
-    code on GitHub (`global.repo_url`). Re-running replaces the links rather than adding more."""
-    import html as _html
-    parts = ['<a href="index.html">GeoData home</a>']
-    if site:
-        name = re.sub(r"^https?://(www\.)?", "", site).rstrip("/")
-        parts.append(f'<a class="site" href="{_html.escape(site)}">{_html.escape(name)}</a>')
-    if url:
-        parts.append(f'<a class="repo" href="{_html.escape(url)}">Code on GitHub</a>')
-    nav = " | ".join(parts)
-    n = 0
-    for p in out_dir.glob("*.html"):
-        s = p.read_text(encoding="utf-8")
-        new = NAV.sub(lambda m: nav, s, count=1)
-        if new != s:
-            p.write_text(new, encoding="utf-8")
-            n += 1
-    logging.getLogger("visualise").info("header links on %d pages", n)
-
-
 def _postcode_variables(data_dir: Path, variables: dict) -> dict:
     """Only the variables that exist as postcode columns (step 2 lookup or step 3 features): area rates per head and
     derived variables are worked out for areas, so they are left out of the postcode overlays."""
@@ -204,9 +180,8 @@ def main(argv=None) -> int:
         f'.cards{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}}'
         f'.card{{background:#fff;border-radius:6px;padding:12px;box-shadow:0 1px 3px #0002;text-decoration:none;color:#222}}'
         f'.card b{{display:block;margin-bottom:4px;color:#1d5f8a}} .card span{{font-size:13px;color:#555}}'
-        f'.credits{{font-size:12px;color:#666;margin-top:26px}}'
         f'@media (max-width:1000px){{.dds{{grid-template-columns:repeat(2,1fr)}}}}</style></head><body>'
-        f'<header><h1>{title}</h1><p><a href="index.html">GeoData home</a></p></header><main>'
+        f'<header><h1>{title}</h1></header><main>'
         f'<p class="lead">This project collates as many open UK datasets as possible into one place, starting with data '
         f'published by UK government bodies, and links every one of them to the postcode. It has two main outputs: '
         f'<b>(2a)</b> a postcode lookup - one row for every UK postcode with the values from each source, such as area '
@@ -216,11 +191,10 @@ def main(argv=None) -> int:
         f'<h2>Data dictionary</h2><div class="dds">{dict_html}</div>'
         f'<h2>Featured maps</h2><div class="cards">{cards}</div>'
         f'<h2>All map pages</h2><ul>{"".join(links)}</ul>'
-        f'<p class="credits">Sources include ONS, OS, DfT, Defra, Forest Research, ORR, MHCLG, NHS, Land Registry and '
-        f'others, mostly under the Open Government Licence (see the data dictionary for each). Sports facilities: '
-        f'Contains Data © Sport England (CC BY 4.0).</p></main></body></html>',
+        f'</main></body></html>',
         encoding="utf-8")
-    _add_repo_link(out_dir, g.get("repo_url"), g.get("site_url"))
+    from geodata.step4_visualise.site import add_site
+    log.info("site header and footer on %d pages", add_site(out_dir, g.get("site"), g.get("repo_url")))
     from geodata.step4_visualise.mobile import add_mobile
     log.info("phone layout on %d pages", add_mobile(out_dir))
     log.info("visualisations written to %s in %.0fs", out_dir, time.perf_counter() - t0)

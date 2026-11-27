@@ -10,6 +10,39 @@ global:
   output_dir: 4_visualise            # under data_dir (git-ignored)
   repo_url: https://github.com/richardkappa/GeoData   # linked from every page header
   site_url: https://richardkappa.co.uk/                 # the main website, also linked from every page header
+  # Main-website look on every page (geodata/step4_visualise/site.py): the site's black bar and menu, a bar of
+  # map pages, its fonts and colours, a footer and "Page - name" titles. Taken from richardkappa.co.uk's theme.
+  site:
+    name: Richard Kapustynskyj
+    url: https://richardkappa.co.uk/
+    favicon: https://i0.wp.com/richardkappa.co.uk/wp-content/uploads/2021/10/cropped-Black-Cat-transparent.png?fit=32%2C32&ssl=1
+    colours: {bar: '#101010', accent: '#0bb4aa', link: '#077d76', background: '#f9fafd', text: '#101010',
+              muted: '#6c6c77', border: '#e4e6ee'}   # link: the accent darkened so text links are readable
+    fonts: {body: Inter, headings: Onest}           # Google Fonts
+    menu:                                           # the site's own menu, with Maps added
+      - {label: Maps, url: index.html}
+      - {label: Mapping Examples, url: 'https://richardkappa.co.uk/mapping-examples/'}
+      - {label: Contact, url: 'https://richardkappa.co.uk/contact/'}
+      - {label: GitHub, url: repo}                  # repo = global.repo_url
+    pages:                                          # second bar: the map pages, current one highlighted
+      - {label: Maps home, url: index.html}
+      - {label: Map explorer, url: explorer.html}
+      - {label: Choropleths, url: choropleths.html}
+      - {label: Cartograms, url: cartograms.html}
+      - {label: Dynamic cartograms, url: dynamic_cartograms.html}
+      - {label: Heat maps, url: heatmaps.html}
+      - {label: Small multiples, url: small_multiples.html}
+      - {label: Mini maps, url: minimaps.html}
+      - {label: Data dictionary, url: variables.html}
+    footer:
+      - {label: richardkappa.co.uk, url: 'https://richardkappa.co.uk/'}
+      - {label: Maps home, url: index.html}
+      - {label: Code on GitHub, url: repo}
+      - {label: Contact, url: 'https://richardkappa.co.uk/contact/'}
+    credits: >-
+      Sources include ONS, OS, DfT, Defra, Forest Research, ORR, MHCLG, NHS, Land Registry and others, mostly under the
+      Open Government Licence (see the data dictionary). Contains OS data &copy; Crown copyright and database right.
+      Sports facilities: Contains Data &copy; Sport England (CC BY 4.0). Map tiles are credited on each map.
   # Background tiles for the street maps. The pages are local files: OpenStreetMap's own
   # tile servers refuse them and CARTO needs an API key. CARTO is used when the
   # environment variable CARTO_API_KEY is set (free key: carto.com/basemaps/apikey; never
