@@ -30,4 +30,5 @@ if (-not $SkipExtract) { conda run -n GeoData --no-capture-output python 01_extr
 conda run -n GeoData --no-capture-output python 02_collate.py
 if ($Bbox) { conda run -n GeoData --no-capture-output python 03_features.py --bbox $Bbox.Split(" ") }
 else { conda run -n GeoData --no-capture-output python 03_features.py }
-Write-Host "Done. Outputs in $env:GEODATA_DIR"
+conda run -n GeoData --no-capture-output python 04_visualise.py
+Write-Host "Done. Outputs in $env:GEODATA_DIR (open viz\index.html)"

@@ -109,6 +109,11 @@ columns:
   pt_hospitals_ae: NHS acute general hospitals, the usual sites of A&E departments (CQC, England only)
   pt_care_homes: care homes (CQC, England only)
   pt_takeaways: takeaways and sandwich shops (Food Standards Agency hygiene ratings)
+  pt_swimming_pools: operational swimming pools open to the public (Sport England Active Places, England; Contains Data © Sport England)
+  pt_gyms: operational health and fitness gyms open to the public (Sport England Active Places, England; Contains Data © Sport England)
+  pt_sports_halls: operational sports halls open to the public (Sport England Active Places, England; Contains Data © Sport England)
+  pt_grass_pitches: operational grass sports pitches (Sport England Active Places, England; Contains Data © Sport England)
+  pt_rail_station_usage: railway station entries and exits a year (ORR estimates of station usage)
   pt_pubs_bars: pubs, bars and nightclubs (Food Standards Agency hygiene ratings)
   pt_restaurants_cafes: restaurants, cafes and canteens (Food Standards Agency hygiene ratings)
   pt_supermarkets: supermarkets and hypermarkets (Food Standards Agency hygiene ratings)
@@ -225,6 +230,18 @@ columns:
 
 patterns:
   # first match wins, so the most specific patterns come first
+  - ['^income_total_annual$', 'Mean total annual household income (£) of the postcode''s MSOA, financial year ending 2023 (ONS modelled small-area estimate; England and Wales)']
+  - ['^income_net_annual$', 'Mean net (disposable) annual household income (£) of the postcode''s MSOA, financial year ending 2023 (ONS; England and Wales)']
+  - ['^income_net_bhc$', 'Mean net annual household income (£) of the postcode''s MSOA, equivalised (adjusted for household size and make-up) before housing costs, FYE 2023 (ONS; England and Wales)']
+  - ['^income_net_ahc$', 'Mean net annual household income (£) of the postcode''s MSOA, equivalised, after housing costs, FYE 2023 (ONS; England and Wales)']
+  - ['^lsoa_cars_per_household$', 'Privately kept licensed cars per household in the postcode''s LSOA (DfT vehicle licensing statistics, latest quarter, at the keeper''s address; Census 2021 households; England and Wales)']
+  - ['^lsoa_plugin_share_pct$', 'Plug-in vehicles (battery electric, plug-in hybrid, range extended) as % of all licensed vehicles in the postcode''s LSOA / data zone (DfT, latest quarter; UK)']
+  - ['^lsoa_company_car_share_pct$', 'Company-kept cars as % of licensed cars in the postcode''s LSOA / data zone (DfT, latest quarter; UK)']
+  - ['^lsoa_bev_share_pct$', 'Battery-electric vehicles as % of all licensed vehicles in the postcode''s LSOA / data zone (DfT, latest quarter; UK)']
+  - ['^noise_road_lden_db$', 'Road traffic noise at the postcode: lower bound (dB) of the loudest 5 dB Lden band it falls in - the day-evening-night annual average, evenings and nights weighted as louder (Defra strategic noise maps, England, round 3, 2017); blank = below 55 dB or not modelled']
+  - ['^noise_rail_lden_db$', 'Railway noise at the postcode: lower bound (dB) of the loudest 5 dB Lden band (Defra strategic noise maps, England, round 3, 2017); blank = below 55 dB or not modelled']
+  - ['^scot_crime_all_crimes$', 'Scotland only: all crimes recorded per 10,000 people in the postcode''s council area, latest financial year (Scottish Government recorded crime; there is no street-level crime data for Scotland)']
+  - ['^scot_crime_(.+)$', 'Scotland only: recorded crime per 10,000 people in the postcode''s council area - {1} - latest financial year (Scottish Government recorded crime)']
   # --- section 3 neighbourhoods (before the patterns of the measures they average)
   - ['^lsoa_neighbours_(\d)step_n$', 'Number of LSOAs within {1} boundaries of the postcode''s LSOA (own included; areas joined by a road bridge count as neighbours)']
   - ['^lsoa_neighbours_(\d)step_population$', 'Residents of the LSOAs within {1} boundaries of the postcode''s LSOA (Census 2021)']

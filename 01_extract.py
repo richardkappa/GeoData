@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """Section 1 - data extraction.
 
-Downloads every enabled source in ``config/extract.yaml`` and writes
-standardised Parquet/GeoParquet files to ``<data_dir>/extract/``.
+Downloads every enabled source in ``config/1_extract.yaml`` and writes
+standardised Parquet/GeoParquet files to ``<data_dir>/1_extract/``.
 
 Examples
 --------
@@ -24,12 +24,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from geodata.config import load_settings
-from geodata.sources import load_all
+from geodata.step1_extract import load_all
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", help="YAML config (default config/extract.yaml)")
+    ap.add_argument("--config", help="YAML config (default config/1_extract.yaml)")
     ap.add_argument("--data-dir", help="override global.data_dir")
     ap.add_argument("--only", nargs="+", help="run just these sources (ignores 'enabled')")
     ap.add_argument("--skip", nargs="+", default=[], help="skip these sources")
@@ -113,6 +113,8 @@ def main(argv=None) -> int:
         settings.out_dir.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(json.dumps(manifest, indent=2))
 
+    from geodata.dictionary import write_extract_dictionaries
+    write_extract_dictionaries(settings.data_dir)   # data dictionary sections 1 (sources) and 2b (plottable files)
     if failed:
         log.error("failed: %s (see %s)", ", ".join(failed), log_file)
         return 1

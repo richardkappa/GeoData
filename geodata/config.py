@@ -9,7 +9,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_CONFIG = REPO_ROOT / "config" / "extract.yaml"
+DEFAULT_CONFIG = REPO_ROOT / "config" / "1_extract.yaml"
 
 
 @dataclass
@@ -27,11 +27,11 @@ class Settings:
 
     @property
     def raw_dir(self) -> Path:
-        return self.data_dir / "raw"
+        return self.data_dir / "1_raw"
 
     @property
     def out_dir(self) -> Path:
-        return self.data_dir / "extract"
+        return self.data_dir / "1_extract"
 
     def raw(self, source: str) -> Path:
         p = self.raw_dir / source

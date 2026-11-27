@@ -1,0 +1,168 @@
+# =============================================================================
+# Section 2 - collation: flat postcode lookup
+# -----------------------------------------------------------------------------
+# python 02_collate.py                  -> <data_dir>/2_collate/postcode_lookup.parquet
+#                                          + postcode_lookup_dictionary.csv
+# Reads section 1 outputs from <data_dir>/1_extract/. A join whose input is
+# missing is skipped with a warning, so you can run this on a partial extract.
+#
+# Join types
+#   postcode : table keyed on postcode_ns
+#   area     : table keyed on an area code the spine has (spine_col: spine column, key: file column)
+#   polygon  : attributes of the polygon the postcode centroid falls in
+#              how: first (default) | flag | count | max | min
+#   summary  : built-in record summaries (land_registry, uprn_count, police_lsoa)
+# No distances / radii / neighbourhood measures here - that is section 3.
+# =============================================================================
+
+global:
+  data_dir: data            # same as 1_extract.yaml; env GEODATA_DIR overrides
+  output: postcode_lookup   # file stem in <data_dir>/2_collate/
+  write_csv: false          # also write a CSV (large: several GB)
+
+spine:
+  file: ons_nspl/nspl.parquet
+  include_terminated: true  # keep terminated postcodes (flag column `live`)
+  countries: null           # e.g. [E, W] to restrict; null = whole UK
+  require_coordinates: true # drop postcodes without a grid reference
+
+joins:
+  # --- names for the codes the NSPL carries ---------------------------------
+  - {name: lad_name, type: area, spine_col: lad26cd, file: ons_boundaries/lad.parquet, columns: [lad26nm]}
+  - {name: msoa_name, type: area, spine_col: msoa21cd, file: ons_boundaries/msoa21.parquet, columns: [msoa21nm]}
+  - {name: lsoa_name, type: area, spine_col: lsoa21cd, file: ons_boundaries/lsoa21.parquet,
+     columns: [lsoa21nm, ruc21nm], rename: {ruc21nm: lsoa_rural_urban}}
+  - {name: region_name, type: area, spine_col: rgn26cd, key: rgn25cd, file: ons_boundaries/regions.parquet, columns: [rgn25nm],
+     rename: {rgn25nm: rgn_name}}
+  - {name: country_name, type: area, spine_col: ctry26cd, key: ctry25cd, file: ons_boundaries/countries.parquet,
+     columns: [ctry25nm], rename: {ctry25nm: ctry_name}}
+  - {name: constituency_name, type: area, spine_col: pcon24cd, file: ons_boundaries/westminster_2024.parquet, columns: [pcon24nm]}
+
+  # --- postcode-level datasets ----------------------------------------------
+  - {name: electricity, type: postcode, file: energy_postcode/electricity.parquet}
+  - {name: gas, type: postcode, file: energy_postcode/gas.parquet}
+  - {name: uprn_count, type: summary, summary: uprn_count, file: ons_nsul/nsul.parquet,
+     note: number of addresses (UPRNs) in the postcode}
+  - {name: land_registry, type: summary, summary: land_registry, standard_only: true,
+     note: sales in the extracted years; standard (category A) sales only}
+
+  # --- flood risk & broadband (postcode level) -------------------------------
+  - {name: ea_rofrs, type: postcode, file: environment_agency/rofrs_postcodes.parquet,
+     note: "EA properties by rivers & sea flood likelihood band (England, postcodes in risk areas only)"}
+  - {name: ea_postcode_risk, type: postcode, file: environment_agency/postcode_risk.parquet,
+     note: EA properties at high/medium/low flood risk and groundwater risk class (England)}
+  - {name: ofcom_broadband, type: postcode, file: ofcom/broadband_postcode.parquet,
+     note: Ofcom Connected Nations fixed broadband coverage}
+  # mobile coverage: by postcode when Ofcom publishes it, otherwise by local authority
+  # (the 2025 release has only the latter); whichever file is missing is skipped quietly
+  - {name: ofcom_mobile, type: postcode, file: ofcom/mobile_postcode.parquet, optional: true,
+     note: Ofcom Connected Nations mobile coverage (4G/5G by operator, indoor/outdoor)}
+  - {name: ofcom_mobile_la, type: area, spine_col: lad26cd, key: laua, file: ofcom/mobile_laua.parquet, optional: true,
+     note: "Ofcom Connected Nations mobile coverage for the postcode's local authority (4G/5G, indoor/outdoor, voice)"}
+
+  # --- services located in the postcode (counts; distances/densities are section 3)
+  - name: food_hygiene
+    type: summary
+    summary: count
+    file: fsa/food_hygiene.parquet
+    prefix: fsa_
+    category: businesstype
+    categories:
+      takeaway: Takeaway/sandwich shop
+      restaurant: Restaurant/Cafe/Canteen
+      pub_club: Pub/bar/nightclub
+      retail: [Retailers - other, Retailers - supermarkets/hypermarkets]
+    mean: [rating_numeric]
+    note: food businesses in the postcode and their mean 0-5 hygiene rating
+  - name: cqc
+    type: summary
+    summary: count
+    file: cqc/cqc_locations.parquet
+    prefix: cqc_
+    category: care_home
+    categories: {care_home: Y}
+    sum: [care_home_beds]
+    note: CQC registered locations in the postcode (England)
+  - {name: gp_practices, type: summary, summary: count, file: nhs_ods/gp_practices.parquet, prefix: gp_practices_}
+  - {name: pharmacies, type: summary, summary: count, file: nhs_ods/pharmacies.parquet, prefix: pharmacies_}
+  - {name: dental_practices, type: summary, summary: count, file: nhs_ods/dental_practices.parquet, prefix: dentists_}
+  - {name: nhs_trust_sites, type: summary, summary: count, file: nhs_ods/nhs_trust_sites.parquet, prefix: nhs_sites_}
+
+  # --- small-area statistics --------------------------------------------------
+  - name: census_2021
+    type: area
+    spine_col: oa21cd
+    glob: "census_2021/ts*_oa.parquet"
+    drop: [oa_name]
+    shares: false             # true = convert counts to share of each table's total
+    note: Census 2021 output-area counts (E&W)
+  - {name: imd_2025, type: area, spine_col: lsoa21cd, file: imd_england/iod2025_lsoa.parquet, prefix: imd_,
+     drop_regex: '^(lsoa_name|local_authority_district)'}
+  # household income (ONS small-area estimates, MSOA, England and Wales)
+  - {name: income, type: area, spine_col: msoa21cd, file: income/msoa_income.parquet,
+     columns: [total_annual, net_annual, net_bhc, net_ahc], prefix: income_}
+  # licensed vehicles of the postcode's LSOA / data zone (DfT, latest quarter)
+  - {name: vehicles, type: area, spine_col: lsoa21cd, file: vehicles/lsoa_vehicles.parquet,
+     columns: [cars_per_household, plugin_share_pct, bev_share_pct, company_car_share_pct], prefix: lsoa_}
+  # Scotland has no street-level crime (police.uk covers England, Wales and NI): council-area rates instead
+  - {name: scotland_crime, type: area, spine_col: lad26cd, key: lad_code, file: scotland_crime/council_crime.parquet,
+     columns: [all_crimes, violence, dishonesty, housebreaking, vehicle_crime, shoplifting, vandalism, fire_raising, drugs],
+     prefix: scot_crime_}
+  - {name: police_lsoa, type: summary, summary: police_lsoa, months: 12,
+     note: recorded crimes in the postcode's LSOA over the last N months (counts)}
+
+  # --- what the postcode sits inside (point-in-polygon) ----------------------
+  # road and rail noise (Defra strategic noise maps, England round 3): the loudest Lden band (lower bound, dB)
+  # the postcode falls in; blank = below 55 dB or not modelled
+  - {name: noise_road, type: polygon, how: max, file: noise/road_lden.parquet, columns: [lden_db],
+     rename: {lden_db: noise_road_lden_db}}
+  - {name: noise_rail, type: polygon, how: max, file: noise/rail_lden.parquet, columns: [lden_db],
+     rename: {lden_db: noise_rail_lden_db}}
+  - {name: aonb, type: polygon, file: natural_england/aonb.parquet, columns: [name], prefix: aonb_}
+  - {name: lad19, type: polygon, file: ons_boundaries/lad19.parquet, columns: [lad19cd], rename: {lad19cd: lad19cd},
+     note: "local authority district as at December 2019 (for the OS equal-area cartogram)"}
+  - {name: sssi, type: polygon, how: flag, file: natural_england/sssi.parquet}
+  - {name: ancient_woodland, type: polygon, how: flag, file: natural_england/ancient_woodland.parquet}
+  - {name: local_nature_reserve, type: polygon, how: flag, file: natural_england/local_nature_reserves.parquet}
+  - {name: country_park, type: polygon, how: flag, file: natural_england/country_parks.parquet}
+  - {name: heritage_coast, type: polygon, how: flag, file: natural_england/heritage_coasts.parquet}
+  - {name: national_park, type: polygon, file: ons_boundaries/national_parks.parquet, columns: [npark22nm],
+     rename: {npark22nm: national_park_name}}
+  - {name: conservation_area, type: polygon, file: historic_england/conservation_areas.parquet, columns: [name],
+     prefix: conservation_area_}
+  - {name: world_heritage_site, type: polygon, how: flag, file: historic_england/world_heritage_sites.parquet}
+  - {name: registered_park_garden, type: polygon, how: flag, file: historic_england/parks_and_gardens.parquet}
+  - {name: built_up_area, type: polygon, file: os_open/builtupareas__os_open_built_up_areas.parquet,
+     columns: [name1_text, areahectares], rename: {name1_text: bua_name, areahectares: bua_hectares}}
+  - {name: radon, type: polygon, how: max, file: os_open/radon_indicative_atlas__radon_indicative_atlas_v3.parquet,
+     columns: [class_max], rename: {class_max: radon_class}, note: "1 (<1% homes above action level) .. 6 (>=30%)"}
+  - {name: geosure_shrink_swell, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_shrinkswell_v8.parquet,
+     columns: [class], rename: {class: geosure_shrink_swell}, flag: false}
+  - {name: geosure_landslides, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_landslides_v8.parquet,
+     columns: [class], rename: {class: geosure_landslides}, flag: false}
+  - {name: geosure_soluble_rocks, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_solublerocks_v8.parquet,
+     columns: [class], rename: {class: geosure_soluble_rocks}, flag: false}
+  - {name: geosure_compressible, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_compressibleground_v8.parquet,
+     columns: [class], rename: {class: geosure_compressible_ground}, flag: false}
+  - {name: geosure_collapsible, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_collapsibledeposits_v8.parquet,
+     columns: [class], rename: {class: geosure_collapsible_deposits}, flag: false}
+  - {name: geosure_running_sand, type: polygon, file: os_open/gb_hex_5km_geosure__gb_hex_5km_gs_runningsand_v8.parquet,
+     columns: [class], rename: {class: geosure_running_sand}, flag: false}
+
+  # --- climate 1991-2020 (value of the grid cell containing the postcode) ----
+  - {name: airfrost, type: polygon, file: metoffice_cdp/airfrost_days.parquet, columns: [airfrostdays],
+     rename: {airfrostdays: clim_airfrost_days}, flag: false}
+  - {name: icing, type: polygon, file: metoffice_cdp/icing_days.parquet, columns: [icingdays],
+     rename: {icingdays: clim_icing_days}, flag: false}
+  - {name: summer, type: polygon, file: metoffice_cdp/summer_days.parquet, columns: [summerdays],
+     rename: {summerdays: clim_summer_days}, flag: false}
+  - {name: rain10, type: polygon, file: metoffice_cdp/rain_days_10mm.parquet, columns: [rain10mmdays],
+     rename: {rain10mmdays: clim_rain_days_10mm}, flag: false}
+  - {name: precip, type: polygon, file: metoffice_cdp/precipitation_12km.parquet, columns: [pr],
+     rename: {pr: clim_precip_mm}, flag: false}
+  - {name: tas, type: polygon, file: metoffice_cdp/temperature_12km.parquet, columns: [tas],
+     rename: {tas: clim_mean_temp_c}, flag: false}
+  - {name: tasmax, type: polygon, file: metoffice_cdp/max_temperature_12km.parquet, columns: [tmax],
+     rename: {tmax: clim_max_temp_c}, flag: false}
+  - {name: tasmin, type: polygon, file: metoffice_cdp/min_temperature_12km.parquet, columns: [tmin],
+     rename: {tmin: clim_min_temp_c}, flag: false}

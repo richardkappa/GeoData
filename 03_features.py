@@ -3,8 +3,8 @@
 
 Computes densities, rates, nearest distances, network travel times, land cover,
 terrain, water, house-price and crime trends and LSOA neighbourhood averages as
-configured in ``config/features.yaml``. Output keyed on ``postcode_ns``:
-``<data_dir>/features/postcode_features.parquet`` + ``_dictionary.csv``.
+configured in ``config/3_features.yaml``. Output keyed on ``postcode_ns``:
+``<data_dir>/3_features/postcode_features.parquet`` + ``_dictionary.csv``.
 
     python 03_features.py
     python 03_features.py --bbox 320000 420000 380000 520000     # test area
@@ -26,12 +26,12 @@ import yaml
 
 from geodata import io
 from geodata.config import REPO_ROOT
-from geodata.features.build import build
+from geodata.step3_features.build import build
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default=str(REPO_ROOT / "config" / "features.yaml"))
+    ap.add_argument("--config", default=str(REPO_ROOT / "config" / "3_features.yaml"))
     ap.add_argument("--data-dir")
     ap.add_argument("--bbox", nargs=4, type=float, metavar=("XMIN", "YMIN", "XMAX", "YMAX"),
                     help="only postcodes in this BNG box (test runs)")
@@ -44,7 +44,7 @@ def main(argv=None) -> int:
     data_dir = Path(a.data_dir or os.environ.get("GEODATA_DIR") or g.get("data_dir", "data")).expanduser()
     if not data_dir.is_absolute():
         data_dir = (REPO_ROOT / data_dir).resolve()
-    out_dir = data_dir / "features"
+    out_dir = data_dir / "3_features"
     out_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                         datefmt="%H:%M:%S",
@@ -57,11 +57,14 @@ def main(argv=None) -> int:
     io.write_table(table, out_dir / f"{stem}.parquet", meta={"config": cfg})
     cols = dictionary["column"].to_pylist()
     cov = [round(1 - table[c].null_count / max(table.num_rows, 1), 4) for c in cols]
-    dictionary = dictionary.append_column("coverage", pa.array(cov))
+    from geodata.dictionary import FEATURES, standard_table
+    d = dictionary
+    dictionary = standard_table(FEATURES, cols, d["note"].to_pylist(), [""] * len(cols), d["group"].to_pylist(),
+                                [str(table.schema.field(c).type) for c in cols], cov)   # shared structure
     pacsv.write_csv(dictionary, out_dir / f"{stem}_dictionary.csv")
 
     if g.get("merge_lookup"):
-        lookup = data_dir / "collate" / "postcode_lookup.parquet"
+        lookup = data_dir / "2_collate" / "postcode_lookup.parquet"
         lt = pq.read_table(lookup)
         idx = pc.index_in(lt["postcode_ns"], value_set=table["postcode_ns"])
         for c in table.column_names[1:]:

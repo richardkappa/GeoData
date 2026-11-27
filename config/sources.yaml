@@ -1,0 +1,352 @@
+# =============================================================================
+# Source catalogue: who publishes each source, where exactly it comes from, the guide to it, and its licence
+# -----------------------------------------------------------------------------
+# Read by the data dictionary (section 1 of 4_visualise/variables.html and 1_extract/sources_dictionary.csv).
+# Keys match config/1_extract.yaml. The merge key and output files are added from the code and the last run.
+#   website     the publisher's site (as in the README)
+#   dataset     the specific dataset page or download the source reads
+#   guide       user guide, methodology or field definitions
+#   commercial  true = free for commercial use; false = needs a separate (paid) licence; note explains
+#   coverage    where the source covers; imputation: what the pipeline fills in, and how (none = nothing)
+#   gaps        known systematic gaps to bear in mind when using its columns
+# =============================================================================
+licences:
+  OGL: {name: Open Government Licence v3, url: 'https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/'}
+  CC-BY-4.0: {name: Creative Commons Attribution 4.0, url: 'https://creativecommons.org/licenses/by/4.0/'}
+
+sources:
+  # --- postcodes, addresses and boundaries ----------------------------------------------------------------
+  ons_nspl:
+    theme: Postcodes, addresses and boundaries
+    description: 'ONS National Statistics Postcode Lookup: every UK postcode with its areas and grid reference'
+    website: 'https://geoportal.statistics.gov.uk/'
+    dataset: 'https://geoportal.statistics.gov.uk/search?q=PRD_NSPL&sort=Date%20Created%7Ccreated%7Cdesc'
+    guide: 'User guide in the download (Documents/NSPL User Guide); https://www.ons.gov.uk/methodology/geography/geographicalproducts/postcodeproducts'
+    licence: OGL
+    commercial: true
+    note: 'Contains OS, Royal Mail and GeoPlace data, free to use under the OGL'
+    coverage: 'UK'
+    imputation: 'none (Northern Ireland grid references converted to the British grid)'
+  ons_nsul:
+    theme: Postcodes, addresses and boundaries
+    description: 'ONS National Statistics UPRN Lookup: every address (UPRN) with its postcode'
+    website: 'https://geoportal.statistics.gov.uk/'
+    dataset: 'https://geoportal.statistics.gov.uk/search?q=PRD_NSUL&sort=Date%20Created%7Ccreated%7Cdesc'
+    guide: 'User guide in the download; https://www.ons.gov.uk/methodology/geography/geographicalproducts/postcodeproducts'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain'
+    imputation: 'none'
+  ons_boundaries:
+    theme: Postcodes, addresses and boundaries
+    description: 'ONS boundaries: output areas, LSOAs, MSOAs, councils, wards, constituencies, regions, national parks'
+    website: 'https://geoportal.statistics.gov.uk/'
+    dataset: 'https://geoportal.statistics.gov.uk/'
+    guide: 'https://www.ons.gov.uk/methodology/geography/geographicalproducts/digitalboundaries'
+    licence: OGL
+    commercial: true
+    coverage: 'UK (some layers Great Britain or England and Wales)'
+    imputation: 'none'
+  os_open:
+    theme: Postcodes, addresses and boundaries
+    description: 'Ordnance Survey OpenData (Code-Point Open, Open UPRN, Open Roads, Open Rivers, Open Greenspace, Built Up Areas, Open Names, Terrain 50, Open Zoomstack) and BGS radon and GeoSure 5 km hexes, via the OS downloads service'
+    website: 'https://osdatahub.os.uk/'
+    dataset: 'https://osdatahub.os.uk/downloads/open'
+    guide: 'https://docs.os.uk/'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain (radon also Northern Ireland)'
+    imputation: 'none'
+  # --- people, deprivation, income, energy, vehicles ------------------------------------------------------
+  census_2021:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'Census 2021 topic summaries (England and Wales)'
+    website: 'https://www.nomisweb.co.uk/'
+    dataset: 'https://www.nomisweb.co.uk/census/2021/bulk'
+    guide: 'https://www.ons.gov.uk/census/census2021dictionary'
+    licence: OGL
+    commercial: true
+    coverage: 'England and Wales'
+    imputation: 'none in the source. Postcode populations used for weighting are estimated: each output area''s total shared over its postcodes by addresses; Scotland and Northern Ireland estimated from addresses (or a typical postcode where there is no address count)'
+    gaps: 'Scotland and Northern Ireland have no values (their censuses are separate and not extracted)'
+  imd_england:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'English Indices of Deprivation 2025'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025'
+    guide: 'Technical report on the dataset page: https://www.gov.uk/government/statistics/english-indices-of-deprivation-2025'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'none'
+    gaps: 'England only; scores are not comparable with the Welsh, Scottish or NI indices'
+  income:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'ONS modelled household income by MSOA (England and Wales)'
+    website: 'https://www.ons.gov.uk/'
+    dataset: 'https://www.ons.gov.uk/employmentandlabourmarket/peopleinwork/earningsandworkinghours/datasets/smallareaincomeestimatesformiddlelayersuperoutputareasenglandandwales'
+    guide: 'https://www.ons.gov.uk/peoplepopulationandcommunity/personalandhouseholdfinances/incomeandwealth/methodologies/incomeestimatesforsmallareasinenglandandwalestechnicalreportfinancialyearending2023'
+    licence: OGL
+    commercial: true
+    coverage: 'England and Wales'
+    imputation: 'none (the source is itself a modelled estimate)'
+    gaps: 'England and Wales only; MSOA averages, so every postcode in an MSOA shares one value'
+  energy_postcode:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'DESNZ domestic electricity and gas use by postcode'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.gov.uk/government/collections/sub-national-electricity-consumption-data'
+    guide: 'https://www.gov.uk/government/publications/sub-national-methodology-and-guidance-booklet'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain (postcodes with enough meters to publish)'
+    imputation: 'none'
+    gaps: 'Postcodes with too few meters are not published; non-domestic postcodes absent'
+  vehicles:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'DfT licensed vehicles by small area: cars, plug-in and electric vehicles'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.gov.uk/government/statistical-data-sets/vehicle-licensing-statistics-data-files'
+    guide: 'https://www.gov.uk/government/publications/vehicles-statistics-guidance'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'counts of 1 to 4 are suppressed by DfT and set to 2'
+    gaps: 'Counted at the keeper''s address, so company and lease fleets inflate a few areas (plug-in shares near 100%)'
+  mot:
+    theme: 'People, deprivation, income, energy, vehicles'
+    description: 'DVSA anonymised MOT test results: make, model, age, mileage, outcome'
+    website: 'https://open.data.dvsa.gov.uk/'
+    dataset: 'https://open.data.dvsa.gov.uk/mot-anonymised/index.html'
+    guide: 'https://edh-dvsa-data-gov-uk-files-prod.s3.eu-west-1.amazonaws.com/mot-testing-data-user-guide-v5.1.odt'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain (cars over three years old)'
+    imputation: 'none; malformed rows skipped'
+    gaps: 'Test station''s postcode area, not the keeper''s; cars under three years old have no MOT'
+  # --- crime, safety, fire, transport ---------------------------------------------------------------------
+  police:
+    theme: 'Crime, safety, fire, transport'
+    description: 'Street-level crime and stop and search (England, Wales and Northern Ireland)'
+    website: 'https://data.police.uk/'
+    dataset: 'https://data.police.uk/data/archive/'
+    guide: 'https://data.police.uk/about/'
+    licence: OGL
+    commercial: true
+    note: 'Greater Manchester Police supplies no data at present'
+    coverage: 'England, Wales and Northern Ireland (not Scotland; no Greater Manchester)'
+    imputation: 'none; Greater Manchester is blanked on the maps rather than shown as zero'
+    gaps: 'No data for Greater Manchester (the force has supplied none), so crime there reads as zero in the counts: use with care there or exclude it; no Scotland (see scotland_crime)'
+  scotland_crime:
+    theme: 'Crime, safety, fire, transport'
+    description: 'Recorded crime by council area (Scotland)'
+    website: 'https://data.gov.scot/'
+    dataset: 'https://data.gov.scot/dataset/recorded_crimes_and_offences'
+    guide: 'https://www.gov.scot/collections/recorded-crime-in-scotland/'
+    licence: OGL
+    commercial: true
+    coverage: 'Scotland (council areas only)'
+    imputation: 'none'
+    gaps: 'Council-area rates only: every postcode in a council shares one value'
+  fire:
+    theme: 'Crime, safety, fire, transport'
+    description: 'Fire and rescue incidents: England by LSOA (MHCLG), Scotland by data zone (SFRS)'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.gov.uk/government/statistical-data-sets/fire-statistics-incident-level-datasets; https://data.gov.scot/dataset/total_fires'
+    guide: 'https://www.gov.uk/government/statistics/fire-statistics-incident-level-datasets/low-level-geography-dataset-guidance'
+    licence: OGL
+    commercial: true
+    coverage: 'England and Scotland (no Wales or Northern Ireland)'
+    imputation: 'none; incidents counted per small area and placed at its centre, averaged over three financial years'
+    gaps: 'No Wales or Northern Ireland; England and Scotland years differ by one (2023-26 vs 2022-25)'
+  road_safety:
+    theme: 'Crime, safety, fire, transport'
+    description: 'DfT STATS19 road collisions'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.data.gov.uk/dataset/cb7ae6f0-4be6-4935-9277-47e5ce24a11f/road-safety-data'
+    guide: 'https://www.gov.uk/government/publications/road-accidents-and-safety-statistics-guidance'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain'
+    imputation: 'coordinates: a few collisions without a grid reference are left out'
+  naptan:
+    theme: 'Crime, safety, fire, transport'
+    description: 'DfT NaPTAN: bus stops, stations, ferry and air terminals'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://beta-naptan.dft.gov.uk/'
+    guide: 'https://www.gov.uk/government/publications/national-public-transport-access-node-schema'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain'
+    imputation: 'coordinates from latitude / longitude where the grid reference is missing'
+  rail_usage:
+    theme: 'Crime, safety, fire, transport'
+    description: 'ORR estimates of station usage'
+    website: 'https://dataportal.orr.gov.uk/'
+    dataset: 'https://dataportal.orr.gov.uk/statistics/usage/estimates-of-station-usage/'
+    guide: 'https://dataportal.orr.gov.uk/media/1917/station-usage-quality-and-methodology-report.pdf'
+    licence: OGL
+    commercial: true
+    coverage: 'Great Britain'
+    imputation: 'none'
+  # --- property, services, health, food, sport ------------------------------------------------------------
+  land_registry:
+    theme: 'Property, services, health, food, sport'
+    description: 'HM Land Registry Price Paid: house sales in England and Wales'
+    website: 'https://www.gov.uk/'
+    dataset: 'https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads'
+    guide: 'https://www.gov.uk/guidance/about-the-price-paid-data'
+    licence: OGL
+    commercial: false
+    note: 'The address data in it (from Royal Mail''s PAF) may only be used for personal or non-commercial purposes, or to show property price information; other commercial use needs a Royal Mail licence'
+    coverage: 'England and Wales'
+    imputation: 'coordinates: each sale placed at its postcode''s centre (the source has no coordinates)'
+    gaps: 'Only postcodes with sales in the period have values; some non-market sales are excluded'
+  schools:
+    theme: 'Property, services, health, food, sport'
+    description: 'DfE Get Information about Schools'
+    website: 'https://get-information-schools.service.gov.uk/'
+    dataset: 'https://get-information-schools.service.gov.uk/Downloads'
+    guide: 'https://get-information-schools.service.gov.uk/Guidance'
+    licence: OGL
+    commercial: true
+    coverage: 'England (and some Welsh establishments)'
+    imputation: 'coordinates from the postcode''s centre where missing'
+  nhs_ods:
+    theme: 'Property, services, health, food, sport'
+    description: 'NHS Organisation Data Service: GP practices, pharmacies, dentists, NHS sites, Primary Care Networks'
+    website: 'https://digital.nhs.uk/'
+    dataset: 'https://digital.nhs.uk/services/organisation-data-service/data-search-and-export'
+    guide: 'https://digital.nhs.uk/services/organisation-data-service'
+    licence: OGL
+    commercial: true
+    coverage: 'England and Wales'
+    imputation: 'coordinates: placed at the postcode''s centre (the source has no coordinates)'
+  cqc:
+    theme: 'Property, services, health, food, sport'
+    description: 'Care Quality Commission registered locations'
+    website: 'https://www.cqc.org.uk/'
+    dataset: 'https://www.cqc.org.uk/about-us/transparency/using-cqc-data'
+    guide: 'https://www.cqc.org.uk/about-us/transparency/using-cqc-data'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'coordinates from the postcode''s centre where missing'
+  fsa:
+    theme: 'Property, services, health, food, sport'
+    description: 'Food Standards Agency food hygiene ratings'
+    website: 'https://ratings.food.gov.uk/'
+    dataset: 'https://ratings.food.gov.uk/open-data'
+    guide: 'https://www.food.gov.uk/safety-hygiene/food-hygiene-rating-scheme'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'coordinates from the postcode''s centre where missing; businesses run from homes have no address and are left out'
+    gaps: 'Businesses run from private homes have no address'
+  active_places:
+    theme: 'Property, services, health, food, sport'
+    description: 'Sport England Active Places: sports facilities (England)'
+    website: 'https://www.activeplacespower.com/'
+    dataset: 'https://www.activeplacespower.com/pages/downloads'
+    guide: 'https://www.activeplacespower.com/pages/help'
+    licence: CC-BY-4.0
+    commercial: true
+    note: '"Contains Data © Sport England" must go with any use'
+    coverage: 'England'
+    imputation: 'none'
+    gaps: 'England only; closed and private facilities are kept but filtered out of the features'
+  # --- environment, heritage, climate ---------------------------------------------------------------------
+  environment_agency:
+    theme: 'Environment, heritage, climate'
+    description: 'Flood risk by postcode (England)'
+    website: 'https://environment.data.gov.uk/'
+    dataset: 'https://www.data.gov.uk/search?q=Risk+of+Flooding+from+Rivers+and+Sea+postcodes'
+    guide: 'https://www.gov.uk/check-long-term-flood-risk'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'none'
+    gaps: 'England only'
+  ofcom:
+    theme: 'Environment, heritage, climate'
+    description: 'Ofcom Connected Nations: broadband and mobile coverage'
+    website: 'https://www.ofcom.org.uk/'
+    dataset: 'https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds'
+    guide: 'https://www.ofcom.org.uk/phones-and-broadband/coverage-and-speeds'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'none'
+    gaps: 'Mobile coverage in the 2025 release is by local authority, not postcode'
+  natural_england:
+    theme: 'Environment, heritage, climate'
+    description: 'Protected sites: SSSI, National Landscapes, ancient woodland, nature reserves...'
+    website: 'https://naturalengland-defra.opendata.arcgis.com/'
+    dataset: 'https://naturalengland-defra.opendata.arcgis.com/'
+    guide: 'Each layer''s metadata on the open data site'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'none'
+  historic_england:
+    theme: 'Environment, heritage, climate'
+    description: 'Listed buildings, scheduled monuments, parks and gardens, conservation areas...'
+    website: 'https://historicengland.org.uk/'
+    dataset: 'https://opendata-historicengland.hub.arcgis.com/'
+    guide: 'https://historicengland.org.uk/listing/the-list/data-downloads/'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'none'
+  metoffice_cdp:
+    theme: 'Environment, heritage, climate'
+    description: 'Met Office 1991-2020 climate averages'
+    website: 'https://climatedataportal.metoffice.gov.uk/'
+    dataset: 'https://climatedataportal.metoffice.gov.uk/'
+    guide: 'https://www.metoffice.gov.uk/research/climate/maps-and-data/uk-climate-averages'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'none'
+  metoffice_haduk:
+    theme: 'Environment, heritage, climate'
+    description: 'Met Office HadUK-Grid 1 km climate by year (needs a free CEDA account)'
+    website: 'https://catalogue.ceda.ac.uk/'
+    dataset: 'https://catalogue.ceda.ac.uk/?q=HadUK-Grid'
+    guide: 'https://www.metoffice.gov.uk/research/climate/maps-and-data/data/haduk-grid/haduk-grid'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'postcodes take the nearest 1 km land square (within 2 km), so coastal postcodes are filled from inland'
+    gaps: 'Needs a CEDA login; skipped without one'
+  air_quality:
+    theme: 'Environment, heritage, climate'
+    description: 'Defra modelled background NO2, PM2.5 and PM10 on a 1 km grid'
+    website: 'https://uk-air.defra.gov.uk/'
+    dataset: 'https://uk-air.defra.gov.uk/data/pcm-data'
+    guide: 'https://uk-air.defra.gov.uk/research/air-quality-modelling?view=modelling'
+    licence: OGL
+    commercial: true
+    coverage: 'UK'
+    imputation: 'postcodes take the nearest 1 km square (within 800 m)'
+  noise:
+    theme: 'Environment, heritage, climate'
+    description: 'Defra strategic noise maps, road and rail (England, 2017)'
+    website: 'https://environment.data.gov.uk/'
+    dataset: 'https://www.data.gov.uk/dataset/road-noise-lden-england-round-31'
+    guide: 'https://www.gov.uk/government/publications/strategic-noise-mapping-2019'
+    licence: OGL
+    commercial: true
+    coverage: 'England (major roads, railways and large urban areas)'
+    imputation: 'none; places outside every noise band are below 55 dB or not modelled'
+    gaps: 'Only major roads, railways and large urban areas were modelled; blank means below 55 dB or not modelled'
+  trees:
+    theme: 'Environment, heritage, climate'
+    description: 'Forest Research trees outside woodland (England)'
+    website: 'https://www.forestresearch.gov.uk/'
+    dataset: 'https://www.data.gov.uk/dataset/national-trees-outside-woodland-map'
+    guide: 'https://www.forestresearch.gov.uk/tools-and-resources/trees-outside-woodland-map/'
+    licence: OGL
+    commercial: true
+    coverage: 'England'
+    imputation: 'none'
