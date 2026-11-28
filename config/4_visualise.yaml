@@ -19,10 +19,9 @@ global:
     colours: {bar: '#101010', accent: '#0bb4aa', link: '#077d76', background: '#f9fafd', text: '#101010',
               muted: '#6c6c77', border: '#e4e6ee'}   # link: the accent darkened so text links are readable
     fonts: {body: Inter, headings: Onest}           # Google Fonts
-    menu:                                           # the site's own menu, with Maps added
-      - {label: Maps, url: index.html}
-      - {label: Mapping Examples, url: 'https://richardkappa.co.uk/mapping-examples/'}
+    menu:                                           # same order as the main site's menu, plus GitHub
       - {label: Contact, url: 'https://richardkappa.co.uk/contact/'}
+      - {label: Maps, url: index.html}
       - {label: GitHub, url: repo}                  # repo = global.repo_url
     pages:                                          # second bar: the map pages, current one highlighted
       - {label: Maps home, url: index.html}
